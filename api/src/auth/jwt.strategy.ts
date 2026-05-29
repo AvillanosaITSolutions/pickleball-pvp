@@ -10,6 +10,10 @@ export interface Auth0JwtPayload {
   picture?: string
   aud: string | string[]
   iss: string
+  // Namespaced custom claims injected by the post-login Action.
+  'https://rageroom/email'?: string
+  'https://rageroom/name'?: string
+  'https://rageroom/picture'?: string
 }
 
 @Injectable()

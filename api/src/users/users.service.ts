@@ -11,17 +11,30 @@ export class UsersService {
   ) {}
 
   async findOrCreate(payload: Auth0JwtPayload): Promise<User> {
+    const email = payload['https://rageroom/email'] ?? payload.email
+    const name = payload['https://rageroom/name'] ?? payload.name
+    const picture = payload['https://rageroom/picture'] ?? payload.picture
+
     let user = await this.users.findOne({ where: { auth0Sub: payload.sub } })
     if (!user) {
       user = this.users.create({
         auth0Sub: payload.sub,
-        email: payload.email,
-        name: payload.name,
-        picture: payload.picture,
+        email,
+        name,
+        picture,
         credits: 0,
       })
       await this.users.save(user)
+      return user
     }
+
+    // Backfill profile if it was missing (existing user from before Action was added)
+    let changed = false
+    if (!user.email && email) { user.email = email; changed = true }
+    if (!user.name && name) { user.name = name; changed = true }
+    if (!user.picture && picture) { user.picture = picture; changed = true }
+    if (changed) await this.users.save(user)
+
     return user
   }
 
