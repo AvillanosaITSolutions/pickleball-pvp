@@ -11,11 +11,11 @@ export interface TimePack {
 }
 
 export const TIME_PACKS: TimePack[] = [
-  { id: 'quickie',  pesos: 30,  hours: 5,   label: 'Quick Rage' },
-  { id: 'session',  pesos: 50,  hours: 10,  label: 'Session', popular: true },
-  { id: 'allday',   pesos: 100, hours: 24,  label: 'All Day' },
-  { id: 'weeklong', pesos: 250, hours: 168, label: 'Weeklong Vendetta' },
-  { id: 'monthly',  pesos: 500, hours: 720, label: 'Monthly Outrage' },
+  { id: 'starter',  pesos: 30,  hours: 5,   label: 'Quick Rage' },
+  { id: 'casual',   pesos: 75,  hours: 12,  label: 'Session', popular: true },
+  { id: 'angry',    pesos: 150, hours: 28,  label: 'All Day' },
+  { id: 'furious',  pesos: 300, hours: 60,  label: 'Weeklong Vendetta' },
+  { id: 'unhinged', pesos: 500, hours: 110, label: 'Monthly Outrage' },
 ]
 
 export function pesosToMs(pesos: number) {

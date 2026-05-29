@@ -14,7 +14,7 @@ import { registerRemoteThrowHandler } from './net'
 import type { ThrowSpec } from './Projectiles'
 import { useGame, KIND_INFO, KIND_ORDER } from './store'
 import type { ProjectileKind } from './store'
-import { TIME_PACKS, pesosToMs, formatTime } from './pricing'
+import { TIME_PACKS, formatTime } from './pricing'
 import { preloadAll } from './audio'
 import { CameraEffects } from './CameraEffects'
 import { Trajectory } from './Trajectory'
@@ -101,7 +101,6 @@ export function Game() {
     }
   })
   const timeRemainingMs = useGame((s) => s.timeRemainingMs)
-  const addTime = useGame((s) => s.addTime)
   const spendTime = useGame((s) => s.spendTime)
   const [showStore, setShowStore] = useState(false)
   const [showWallDialog, setShowWallDialog] = useState(false)
@@ -549,22 +548,32 @@ export function Game() {
                   key={p.id}
                   className={'pack' + (p.popular ? ' popular' : '')}
                   onClick={async () => {
+                    const apiBase = (import.meta as any).env?.VITE_API_BASE_URL ?? ''
+                    const { getAccessToken } = await import('./auth')
+                    const token = await getAccessToken()
+                    if (!token) {
+                      alert('You need to sign in before purchasing.')
+                      return
+                    }
                     try {
-                      const res = await fetch('/api/payments/checkout', {
+                      const res = await fetch(`${apiBase}/api/payments/checkout`, {
                         method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
+                        headers: {
+                          'Content-Type': 'application/json',
+                          Authorization: `Bearer ${token}`,
+                        },
                         body: JSON.stringify({ packId: p.id }),
                       })
-                      if (res.ok) {
-                        const { checkoutUrl } = await res.json()
-                        window.location.href = checkoutUrl
+                      if (!res.ok) {
+                        const msg = await res.text().catch(() => res.statusText)
+                        alert(`Checkout failed (${res.status}): ${msg}`)
                         return
                       }
-                    } catch {
-                      // API not running yet — local dev stub
+                      const { checkoutUrl } = await res.json()
+                      window.location.href = checkoutUrl
+                    } catch (e: any) {
+                      alert(`Network error reaching API: ${e?.message ?? e}`)
                     }
-                    addTime(pesosToMs(p.pesos))
-                    setShowStore(false)
                   }}
                 >
                   {p.popular && <span className="badge">Best Value</span>}

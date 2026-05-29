@@ -59,6 +59,9 @@ jobs:
           push: true
           build-args: |
             VITE_API_BASE_URL=https://api-rageroom.88-222-245-88.nip.io
+            VITE_AUTH0_DOMAIN=${{ secrets.VITE_AUTH0_DOMAIN }}
+            VITE_AUTH0_CLIENT_ID=${{ secrets.VITE_AUTH0_CLIENT_ID }}
+            VITE_AUTH0_AUDIENCE=${{ secrets.VITE_AUTH0_AUDIENCE }}
           tags: |
             ${{ env.REGISTRY }}/${{ steps.meta.outputs.image_base }}/web:${{ steps.meta.outputs.tag }}
             ${{ env.REGISTRY }}/${{ steps.meta.outputs.image_base }}/web:latest
@@ -92,6 +95,7 @@ jobs:
           POSTGRES_DB: ${{ secrets.POSTGRES_DB }}
           AUTH0_DOMAIN: ${{ secrets.AUTH0_DOMAIN }}
           AUTH0_AUDIENCE: ${{ secrets.AUTH0_AUDIENCE }}
+          AUTH0_ISSUER: ${{ secrets.AUTH0_ISSUER }}
           PAYMONGO_SECRET_KEY: ${{ secrets.PAYMONGO_SECRET_KEY }}
           PAYMONGO_WEBHOOK_SECRET: ${{ secrets.PAYMONGO_WEBHOOK_SECRET }}
           PAYMONGO_SUCCESS_URL: ${{ secrets.PAYMONGO_SUCCESS_URL }}
@@ -101,7 +105,7 @@ jobs:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY_1 }}
-          envs: IMAGE_TAG,GHCR_REPO,POSTGRES_USER,POSTGRES_PASSWORD,POSTGRES_DB,AUTH0_DOMAIN,AUTH0_AUDIENCE,PAYMONGO_SECRET_KEY,PAYMONGO_WEBHOOK_SECRET,PAYMONGO_SUCCESS_URL,PAYMONGO_CANCEL_URL,JWT_SECRET
+          envs: IMAGE_TAG,GHCR_REPO,POSTGRES_USER,POSTGRES_PASSWORD,POSTGRES_DB,AUTH0_DOMAIN,AUTH0_AUDIENCE,AUTH0_ISSUER,PAYMONGO_SECRET_KEY,PAYMONGO_WEBHOOK_SECRET,PAYMONGO_SUCCESS_URL,PAYMONGO_CANCEL_URL,JWT_SECRET
           script: |
             set -euo pipefail
             mkdir -p ~/rageroom
@@ -115,6 +119,7 @@ jobs:
             POSTGRES_DB=${POSTGRES_DB}
             AUTH0_DOMAIN=${AUTH0_DOMAIN}
             AUTH0_AUDIENCE=${AUTH0_AUDIENCE}
+            AUTH0_ISSUER=${AUTH0_ISSUER}
             PAYMONGO_SECRET_KEY=${PAYMONGO_SECRET_KEY}
             PAYMONGO_WEBHOOK_SECRET=${PAYMONGO_WEBHOOK_SECRET}
             PAYMONGO_SUCCESS_URL=${PAYMONGO_SUCCESS_URL}
