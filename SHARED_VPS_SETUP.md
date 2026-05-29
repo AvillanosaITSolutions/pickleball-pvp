@@ -77,7 +77,7 @@ Store these in your GitHub repository at **Settings â†’ Secrets and variables â†
 ```yaml
 VPS_HOST:               88.222.245.88
 VPS_USER:               deploy
-VPS_SSH_KEY:            -----BEGIN OPENSSH PRIVATE KEY-----
+VPS_SSH_KEY_1:            -----BEGIN OPENSSH PRIVATE KEY-----
                         (multi-line private key)
                         -----END OPENSSH PRIVATE KEY-----
 
@@ -106,7 +106,7 @@ ssh-keygen -t ed25519 -f gh-deploy-key -C "github-actions"
 ssh root@88.222.245.88
 cat >> /home/deploy/.ssh/authorized_keys < gh-deploy-key.pub
 
-# Copy private key content to GitHub secret VPS_SSH_KEY
+# Copy private key content to GitHub secret VPS_SSH_KEY_1
 cat gh-deploy-key
 # (includes BEGIN/END lines, paste entire thing)
 ```

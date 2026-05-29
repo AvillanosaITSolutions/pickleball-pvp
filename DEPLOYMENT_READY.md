@@ -92,7 +92,7 @@ ssh-keygen -t ed25519 -f gh-deploy-key -C "rageroom-github-actions"
 ```yaml
 VPS_HOST: 88.222.245.88
 VPS_USER: deploy
-VPS_SSH_KEY: [PRIVATE KEY CONTENT]
+VPS_SSH_KEY_1: [PRIVATE KEY CONTENT]
 GHCR_REPO: ghcr.io/YOUR-ORG/rageroom
 POSTGRES_USER: postgres
 POSTGRES_PASSWORD: [ASK_ADMIN]
@@ -242,7 +242,7 @@ docker logs -f visa-reminder-traefik
 
 ## Questions?
 
-1. **GitHub Actions not deploying?** → Check VPS_SSH_KEY secret format
+1. **GitHub Actions not deploying?** → Check VPS_SSH_KEY_1 secret format
 2. **API not responding?** → Check docker logs: `docker logs rageroom-api`
 3. **Database connection failed?** → Verify POSTGRES_PASSWORD correct
 4. **HTTPS cert not working?** → Wait 5 min, check Traefik logs

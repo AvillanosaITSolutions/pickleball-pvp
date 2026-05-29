@@ -109,7 +109,7 @@ In your repository: **Settings → Secrets and variables → Actions**
 ```
 VPS_HOST          = 88.222.245.88
 VPS_USER          = deploy
-VPS_SSH_KEY       = [PRIVATE_KEY_CONTENT_HERE]
+VPS_SSH_KEY_1       = [PRIVATE_KEY_CONTENT_HERE]
 GHCR_REPO         = ghcr.io/YOUR-ORG/rageroom
 POSTGRES_USER     = postgres
 POSTGRES_PASSWORD = [ASK_VPS_ADMIN]
@@ -257,7 +257,7 @@ Read these in order:
 
 | Problem | Solution |
 |---------|----------|
-| "GitHub Actions won't deploy" | Check: VPS_SSH_KEY secret is set + contains BEGIN/END lines |
+| "GitHub Actions won't deploy" | Check: VPS_SSH_KEY_1 secret is set + contains BEGIN/END lines |
 | "Containers won't start" | Check logs: `docker compose logs api` |
 | "Database connection failed" | Verify POSTGRES_PASSWORD is correct |
 | "HTTPS cert not issuing" | Wait 5 min for Let's Encrypt. Check Traefik logs |

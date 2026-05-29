@@ -62,7 +62,7 @@ Set these in **Settings → Secrets and variables → Actions**:
 |--------|-------|---------|
 | `VPS_HOST` | VPS IP or hostname | `88.222.245.88` |
 | `VPS_USER` | SSH user | `deploy` |
-| `VPS_SSH_KEY` | Private key (file content with BEGIN/END lines) | `-----BEGIN OPENSSH PRIVATE KEY-----...` |
+| `VPS_SSH_KEY_1` | Private key (file content with BEGIN/END lines) | `-----BEGIN OPENSSH PRIVATE KEY-----...` |
 | `GHCR_REPO` | GitHub Container Registry base path | `ghcr.io/YOUR-ORG/rageroom` |
 | `POSTGRES_USER` | Shared DB user | `postgres` |
 | `POSTGRES_PASSWORD` | Shared DB password | `(get from sip-n-bite admin)` |

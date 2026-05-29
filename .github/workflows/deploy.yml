@@ -82,7 +82,7 @@ jobs:
         with:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
-          key: ${{ secrets.VPS_SSH_KEY }}
+          key: ${{ secrets.VPS_SSH_KEY_1 }}
           source: "docker-compose.prod.yml"
           target: "~/rageroom/"
 
@@ -102,7 +102,7 @@ jobs:
         with:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
-          key: ${{ secrets.VPS_SSH_KEY }}
+          key: ${{ secrets.VPS_SSH_KEY_1 }}
           envs: IMAGE_TAG,GHCR_REPO,POSTGRES_USER,POSTGRES_PASSWORD,POSTGRES_DB,AUTH0_DOMAIN,AUTH0_AUDIENCE,PAYMONGO_SECRET_KEY,PAYMONGO_WEBHOOK_SECRET,JWT_SECRET
           script: |
             set -euo pipefail

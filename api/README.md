@@ -65,7 +65,7 @@ Then add these GitHub Actions secrets:
 
 - `VPS_HOST` — IP or hostname
 - `VPS_USER` — SSH user (e.g. `ubuntu`)
-- `VPS_SSH_KEY` — private key
+- `VPS_SSH_KEY_1` — private key
 - `VPS_APP_DIR` — e.g. `/opt/wallofanger`
 
 Pushing to `main` will rsync the repo + `docker compose up -d --build`.
