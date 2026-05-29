@@ -10,7 +10,7 @@ build
 .git
 .gitignore
 README.md
-src/
+# src/
 public/models/
 scripts/
 .vscode/
