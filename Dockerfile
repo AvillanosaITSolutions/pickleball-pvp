@@ -15,6 +15,8 @@ COPY src ./src
 COPY public ./public
 
 # Install dependencies and build
+ARG VITE_API_BASE_URL
+ENV VITE_API_BASE_URL=$VITE_API_BASE_URL
 RUN npm ci && npm run build
 
 # Production stage - serve with nginx
