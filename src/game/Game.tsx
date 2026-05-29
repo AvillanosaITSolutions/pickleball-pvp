@@ -10,6 +10,7 @@ import { Player } from './Player'
 import { Projectiles } from './Projectiles'
 import { RemotePlayers } from './RemotePlayer'
 import { MultiplayerHUD } from './MultiplayerHUD'
+import { registerRemoteThrowHandler } from './net'
 import type { ThrowSpec } from './Projectiles'
 import { useGame, KIND_INFO, KIND_ORDER } from './store'
 import type { ProjectileKind } from './store'
@@ -184,6 +185,12 @@ export function Game() {
   const addThrow = (spec: ThrowSpec) => setThrows((t) => [...t, spec])
   const removeThrow = (id: number) =>
     setThrows((t) => t.filter((x) => x.id !== id))
+
+  // Pipe incoming remote throws into the same projectile queue.
+  useEffect(() => {
+    registerRemoteThrowHandler((spec) => addThrow(spec))
+    return () => registerRemoteThrowHandler(null)
+  }, [])
 
   useEffect(() => {
     const handler = () => setLocked(document.pointerLockElement !== null)

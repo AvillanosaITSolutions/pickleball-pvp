@@ -4,6 +4,8 @@ import { Html } from '@react-three/drei'
 import * as THREE from 'three'
 import { useMultiplayer } from './multiplayer'
 import type { RemotePlayer as RP } from './multiplayer'
+import { KIND_INFO } from './store'
+import type { ProjectileKind } from './store'
 
 export function RemotePlayers() {
   const players = useMultiplayer((s) => s.players)
@@ -67,6 +69,11 @@ function RemoteAvatar({ player }: { player: RP }) {
           }}
         >
           {player.name}
+          {player.kind && KIND_INFO[player.kind as ProjectileKind] && (
+            <span style={{ marginLeft: 6, opacity: 0.9 }}>
+              {KIND_INFO[player.kind as ProjectileKind].emoji}
+            </span>
+          )}
         </div>
       </Html>
     </group>

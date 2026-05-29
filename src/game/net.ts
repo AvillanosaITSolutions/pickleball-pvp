@@ -1,8 +1,18 @@
 import { io, Socket } from 'socket.io-client'
 import { useMultiplayer, type RemotePlayer } from './multiplayer'
 import { useGame } from './store'
+import { useWorldSplats } from './WorldSplats'
+import type { ThrowSpec } from './Projectiles'
 
 let socket: Socket | null = null
+
+// Game.tsx registers a callback so incoming projectile throws get pushed into
+// the local Projectiles queue with locally-unique ids.
+type RemoteThrowHandler = (spec: ThrowSpec) => void
+let remoteThrowHandler: RemoteThrowHandler | null = null
+export function registerRemoteThrowHandler(h: RemoteThrowHandler | null) {
+  remoteThrowHandler = h
+}
 
 function apiOrigin(): string {
   const explicit = (import.meta as any).env?.VITE_API_BASE_URL as string | undefined
@@ -16,6 +26,10 @@ export function getSocket(): Socket {
   socket = io(apiOrigin(), {
     transports: ['websocket', 'polling'],
     autoConnect: true,
+  })
+
+  socket.on('connect', () => {
+    if (socket?.id) useMultiplayer.setState({ myId: socket.id })
   })
 
   socket.on('roster', (payload: { code: string; players: RemotePlayer[]; photoUrl: string | null }) => {
@@ -33,8 +47,22 @@ export function getSocket(): Socket {
     }
   })
 
-  socket.on('pose', (p: { id: string; x: number; y: number; z: number; ry: number }) => {
+  socket.on('pose', (p: { id: string; x: number; y: number; z: number; ry: number; kind?: string }) => {
     useMultiplayer.getState().updatePose(p)
+  })
+
+  socket.on('throw', (p: { from: string; spec: ThrowSpec }) => {
+    if (p.from === useMultiplayer.getState().myId) return
+    if (!remoteThrowHandler) return
+    // Reassign id locally so we don't collide with the originator's stream
+    remoteThrowHandler({ ...p.spec, id: nextRemoteThrowId-- })
+  })
+
+  socket.on('worldSplat', (p: { from: string; splat: any }) => {
+    if (p.from === useMultiplayer.getState().myId) return
+    suppressNextWorldSplatBroadcast = true
+    useWorldSplats.getState().add(p.splat)
+    suppressNextWorldSplatBroadcast = false
   })
 
   socket.on('photo', (p: { url: string | null; from: string }) => {
@@ -70,9 +98,22 @@ export function joinRoom(code: string, name: string): Promise<{ ok: boolean; err
   })
 }
 
-export function emitPose(x: number, y: number, z: number, ry: number) {
+export function emitPose(x: number, y: number, z: number, ry: number, kind?: string) {
   if (!socket || !useMultiplayer.getState().code) return
-  socket.emit('pose', { x, y, z, ry })
+  socket.emit('pose', { x, y, z, ry, kind })
+}
+
+export function emitThrow(spec: ThrowSpec) {
+  if (!socket || !useMultiplayer.getState().code) return
+  socket.emit('throw', spec)
+}
+
+let suppressNextWorldSplatBroadcast = false
+let nextRemoteThrowId = -1
+export function emitWorldSplat(splat: any) {
+  if (suppressNextWorldSplatBroadcast) return
+  if (!socket || !useMultiplayer.getState().code) return
+  socket.emit('worldSplat', splat)
 }
 
 export function emitPhoto(url: string | null) {

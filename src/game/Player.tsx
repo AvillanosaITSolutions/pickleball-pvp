@@ -13,7 +13,7 @@ import { WALL } from './constants'
 import { playKind } from './audio'
 import { breakRegistry } from './Props'
 import { useWorldSplats } from './WorldSplats'
-import { emitPose } from './net'
+import { emitPose, emitThrow, emitWorldSplat } from './net'
 
 // Convenient wrapper so we can call addWorldSplat() without subscribing
 const addWorldSplat = (s: Parameters<ReturnType<typeof useWorldSplats.getState>['add']>[0]) =>
@@ -248,7 +248,7 @@ export function Player({ onThrow }: Props) {
       const isBreakable = breakRegistry.has(propRb.handle)
       // Hit point + outward normal (negative bullet direction)
       const hitPoint = origin.clone().addScaledVector(dir, propHitT)
-      addWorldSplat({
+      const splat = {
         x: hitPoint.x,
         y: hitPoint.y,
         z: hitPoint.z,
@@ -257,9 +257,11 @@ export function Player({ onThrow }: Props) {
         nz: -dir.z,
         color: '#0a0a0a',
         radius: 0.045,
-        style: 'bullet',
+        style: 'bullet' as const,
         seed: Math.floor(Math.random() * 1e9),
-      })
+      }
+      addWorldSplat(splat)
+      emitWorldSplat(splat)
       if (isBreakable) {
         propRb.applyImpulse({ x: dir.x * 1.5, y: dir.y * 1.5 + 0.4, z: dir.z * 1.5 }, true)
         breakRegistry.get(propRb.handle)!()
@@ -339,12 +341,14 @@ export function Player({ onThrow }: Props) {
     const kind = selectedKindRef.current
     if (!useGame.getState().hasTime()) return // out of paid time
     // No throw-time sound — the thud plays on impact (Projectiles.handleCollision)
-    onThrow({
+    const spec = {
       id: throwId++,
-      origin: [origin.x, origin.y, origin.z],
-      velocity: [velocity.x, velocity.y, velocity.z],
+      origin: [origin.x, origin.y, origin.z] as [number, number, number],
+      velocity: [velocity.x, velocity.y, velocity.z] as [number, number, number],
       kind,
-    })
+    }
+    onThrow(spec)
+    emitThrow(spec)
     registerThrow()
   }
 
@@ -385,7 +389,7 @@ export function Player({ onThrow }: Props) {
     if (nowMs - lastPoseEmitRef.current > 100) {
       lastPoseEmitRef.current = nowMs
       const euler = new THREE.Euler().setFromQuaternion(camera.quaternion, 'YXZ')
-      emitPose(posRef.current.x, posRef.current.y, posRef.current.z, euler.y)
+      emitPose(posRef.current.x, posRef.current.y, posRef.current.z, euler.y, selectedKindRef.current)
     }
 
     // ===== Head-bob =====

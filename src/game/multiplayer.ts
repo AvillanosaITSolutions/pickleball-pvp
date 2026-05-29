@@ -7,6 +7,7 @@ export interface RemotePlayer {
   y: number
   z: number
   ry: number
+  kind?: string | null
 }
 
 interface MPState {
@@ -16,7 +17,7 @@ interface MPState {
   players: RemotePlayer[]
   suppressBroadcast: boolean
   setName: (n: string) => void
-  updatePose: (p: { id: string; x: number; y: number; z: number; ry: number }) => void
+  updatePose: (p: { id: string; x: number; y: number; z: number; ry: number; kind?: string }) => void
 }
 
 const storedName = (() => {
@@ -38,7 +39,7 @@ export const useMultiplayer = create<MPState>((set) => ({
       const i = s.players.findIndex((q) => q.id === p.id)
       if (i < 0) return s
       const next = s.players.slice()
-      next[i] = { ...next[i], x: p.x, y: p.y, z: p.z, ry: p.ry }
+      next[i] = { ...next[i], x: p.x, y: p.y, z: p.z, ry: p.ry, kind: p.kind ?? next[i].kind }
       return { players: next }
     }),
 }))

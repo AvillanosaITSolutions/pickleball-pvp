@@ -15,6 +15,7 @@ interface Player {
   y: number
   z: number
   ry: number
+  kind?: string
 }
 
 interface Room {
@@ -91,7 +92,7 @@ export class RoomsGateway implements OnGatewayDisconnect {
   @SubscribeMessage('pose')
   pose(
     @ConnectedSocket() client: Socket,
-    @MessageBody() body: { x: number; y: number; z: number; ry: number },
+    @MessageBody() body: { x: number; y: number; z: number; ry: number; kind?: string },
   ) {
     const code = this.socketRoom.get(client.id)
     if (!code) return
@@ -99,7 +100,22 @@ export class RoomsGateway implements OnGatewayDisconnect {
     const p = room?.players.get(client.id)
     if (!room || !p) return
     p.x = body.x; p.y = body.y; p.z = body.z; p.ry = body.ry
-    client.to(code).emit('pose', { id: client.id, x: p.x, y: p.y, z: p.z, ry: p.ry })
+    if (body.kind) p.kind = body.kind
+    client.to(code).emit('pose', { id: client.id, x: p.x, y: p.y, z: p.z, ry: p.ry, kind: p.kind })
+  }
+
+  @SubscribeMessage('throw')
+  throwEvt(@ConnectedSocket() client: Socket, @MessageBody() body: any) {
+    const code = this.socketRoom.get(client.id)
+    if (!code) return
+    client.to(code).emit('throw', { from: client.id, spec: body })
+  }
+
+  @SubscribeMessage('worldSplat')
+  worldSplat(@ConnectedSocket() client: Socket, @MessageBody() body: any) {
+    const code = this.socketRoom.get(client.id)
+    if (!code) return
+    client.to(code).emit('worldSplat', { from: client.id, splat: body })
   }
 
   @SubscribeMessage('photo')
