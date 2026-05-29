@@ -86,7 +86,7 @@ jobs:
         uses: appleboy/ssh-action@v1.0.3
         env:
           IMAGE_TAG: ${{ needs.build.outputs.tag }}
-          GHCR_REPO: ${{ secrets.GHCR_REPO }}
+          GHCR_REPO: ${{ env.REGISTRY }}/${{ needs.build.outputs.image_base }}
           POSTGRES_USER: ${{ secrets.POSTGRES_USER }}
           POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
           POSTGRES_DB: ${{ secrets.POSTGRES_DB }}

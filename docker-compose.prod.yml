@@ -9,7 +9,6 @@
 #   GHCR_REPO, IMAGE_TAG, POSTGRES_USER, POSTGRES_PASSWORD, POSTGRES_DB,
 #   AUTH0_DOMAIN, AUTH0_AUDIENCE
 
-version: '3.8'
 name: rageroom-prod
 
 services:
