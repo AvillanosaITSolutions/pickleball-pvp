@@ -18,7 +18,7 @@ import { PaymentTransaction } from './payments/payment-transaction.entity'
       url: process.env.DATABASE_URL,
       ssl: process.env.DATABASE_SSL === 'true' ? { rejectUnauthorized: false } : false,
       entities: [User, CreditLedger, PaymentTransaction],
-      synchronize: process.env.NODE_ENV !== 'production',
+      synchronize: process.env.NODE_ENV !== 'production' || process.env.DB_SYNC === 'true',
       logging: false,
     }),
     AuthModule,
