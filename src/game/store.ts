@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import { FREE_TRIAL_MS } from './pricing'
 
 // Lazy import to avoid loading socket.io-client until multiplayer is engaged.
 function emitPhotoSafe(url: string | null) {
@@ -134,8 +135,8 @@ export const useGame = create<State>((set, get) => ({
       const stored = localStorage.getItem('timeRemainingMs')
       if (stored !== null) return parseInt(stored, 10) || 0
     } catch {}
-    // First visit: grant 10-minute free trial
-    return 10 * 60_000
+    // First visit: grant free trial defined in pricing.ts
+    return FREE_TRIAL_MS
   })(),
   charge: 0,
   throws: 0,

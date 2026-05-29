@@ -37,4 +37,4 @@ export function formatTime(ms: number): string {
   return `${sec}s`
 }
 
-export const FREE_TRIAL_MS = 10 * 60_000 // 10 minutes free on first visit
+export const FREE_TRIAL_MS = 5 * 60_000 // 5 minutes free on first visit
