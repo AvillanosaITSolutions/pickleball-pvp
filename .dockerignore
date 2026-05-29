@@ -1,0 +1,17 @@
+node_modules
+npm-debug.log
+dist
+build
+.DS_Store
+.env
+.env.*.local
+*.pem
+*.log
+.git
+.gitignore
+README.md
+src/
+public/models/
+scripts/
+.vscode/
+.claude/

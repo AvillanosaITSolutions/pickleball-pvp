@@ -1,0 +1,65 @@
+# Production stack — API + Web on the VPS.
+# Routes through the EXISTING visa-reminder-traefik (certresolver "letsencrypt")
+# and reuses the existing Postgres, all on the external visa-reminder_default network.
+# HTTPS via sslip.io hostnames (free, no domain needed):
+#   web → https://rageroom.88.222.245.88.sslip.io
+#   api → https://api-rageroom.88.222.245.88.sslip.io
+#
+# Required env vars (~/rageroom/.env, written by CI from GitHub secrets):
+#   GHCR_REPO, IMAGE_TAG, POSTGRES_USER, POSTGRES_PASSWORD, POSTGRES_DB,
+#   AUTH0_DOMAIN, AUTH0_AUDIENCE
+
+version: '3.8'
+name: rageroom-prod
+
+services:
+  # ============== API (NestJS) ==============
+  api:
+    image: ${GHCR_REPO}/api:${IMAGE_TAG:-latest}
+    container_name: rageroom-api
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: 3001
+      WEB_ORIGIN: https://rageroom.88.222.245.88.sslip.io
+      DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@visa-reminder-postgres:5432/${POSTGRES_DB}
+      AUTH0_DOMAIN: ${AUTH0_DOMAIN}
+      AUTH0_AUDIENCE: ${AUTH0_AUDIENCE}
+      PAYMONGO_SECRET_KEY: ${PAYMONGO_SECRET_KEY:-}
+      PAYMONGO_WEBHOOK_SECRET: ${PAYMONGO_WEBHOOK_SECRET:-}
+      JWT_SECRET: ${JWT_SECRET:-}
+    volumes:
+      - rageroom-uploads:/app/uploads
+    networks:
+      - visa-reminder_default
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=visa-reminder_default"
+      - "traefik.http.routers.rageroom-api.rule=Host(`api-rageroom.88.222.245.88.sslip.io`)"
+      - "traefik.http.routers.rageroom-api.entrypoints=websecure"
+      - "traefik.http.routers.rageroom-api.tls=true"
+      - "traefik.http.routers.rageroom-api.tls.certresolver=letsencrypt"
+      - "traefik.http.services.rageroom-api.loadbalancer.server.port=3001"
+
+  # ============== Web (Nginx + Vite build) ==============
+  web:
+    image: ${GHCR_REPO}/web:${IMAGE_TAG:-latest}
+    container_name: rageroom-web
+    restart: unless-stopped
+    networks:
+      - visa-reminder_default
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=visa-reminder_default"
+      - "traefik.http.routers.rageroom-web.rule=Host(`rageroom.88.222.245.88.sslip.io`)"
+      - "traefik.http.routers.rageroom-web.entrypoints=websecure"
+      - "traefik.http.routers.rageroom-web.tls=true"
+      - "traefik.http.routers.rageroom-web.tls.certresolver=letsencrypt"
+      - "traefik.http.services.rageroom-web.loadbalancer.server.port=80"
+
+networks:
+  visa-reminder_default:
+    external: true
+
+volumes:
+  rageroom-uploads:
