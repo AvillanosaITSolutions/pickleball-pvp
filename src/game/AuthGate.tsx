@@ -28,6 +28,25 @@ export function AuthGate({ children }: Props) {
     })
   }, [isAuthenticated, getAccessTokenSilently])
 
+  // Provision the DB user row on first authenticated load.
+  useEffect(() => {
+    if (!isAuthenticated) return
+    let cancelled = false
+    ;(async () => {
+      try {
+        const token = await getAccessTokenSilently()
+        if (cancelled) return
+        const apiBase = (import.meta as any).env?.VITE_API_BASE_URL ?? ''
+        await fetch(`${apiBase}/api/users/me`, {
+          headers: { Authorization: `Bearer ${token}` },
+        })
+      } catch {
+        // Non-fatal — the next API call (e.g. checkout) will also provision.
+      }
+    })()
+    return () => { cancelled = true }
+  }, [isAuthenticated, getAccessTokenSilently])
+
   if (isLoading) {
     return <Splash><div style={spinner} /></Splash>
   }
