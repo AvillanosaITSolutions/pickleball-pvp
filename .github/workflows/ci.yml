@@ -35,3 +35,125 @@ jobs:
           cache-dependency-path: api/package-lock.json
       - run: npm ci
       - run: npm run build
+
+# Deployment Workflow (GitHub Actions)
+name: Build & Deploy Rageroom
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  # API Deployment Job
+  build_api:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      tag: ${{ steps.meta.outputs.tag }}
+      image_base: ${{ steps.meta.outputs.image_base }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Set up Docker Buildx for building images
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        id: login
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Compute image tag and lowercase image base
+      - name: Compute image tag and lowercase image base
+        id: meta
+        run: |
+          echo "tag=$(echo ${{ github.sha }} | cut -c1-7)" >> "$GITHUB_OUTPUT"
+          echo "image_base=$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_OUTPUT"
+
+      # Build and push API Docker image
+      - name: Build & push api
+        id: build_api
+        uses: docker/build-push-action@v6
+        with:
+          context: ./api
+          file: ./api/Dockerfile
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ steps.meta.outputs.image_base }}/api:${{ steps.meta.outputs.tag }}
+            ${{ env.REGISTRY }}/${{ steps.meta.outputs.image_base }}/api:latest
+          cache-from: type=gha,scope=api
+          cache-to: type=gha,scope=api,mode=max
+
+  # Web Deployment Job
+  build_web:
+    name: Build & push web
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    defaults:
+      run:
+        working-directory: .
+    steps:
+      - uses: actions/checkout@v4
+
+      # Set up Docker Buildx for building images
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        id: login
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Compute image tag and lowercase image base
+      - name: Compute image tag and lowercase image base
+        id: meta
+        run: |
+          echo "tag=$(echo ${{ github.sha }} | cut -c1-7)" >> "$GITHUB_OUTPUT"
+          echo "image_base=$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_OUTPUT"
+
+      # Build and push Web Docker image
+      - name: Build & push web
+        id: build_web
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          push: true
+          build-args: |
+            VITE_API_BASE_URL=https://api-rageroom.88.222.245.88.sslip.io
+          tags: |
+            ${{ env.REGISTRY }}/${{ steps.meta.outputs.image_base }}/web:${{ steps.meta.outputs.tag }}
+            ${{ env.REGISTRY }}/${{ steps.meta.outputs.image_base }}/web:latest
+          cache-from: type=gha,scope=web
+          cache-to: type=gha,scope=web,mode=max
+
+  # Deploy Job to VPS (Using Appleboy)
+  deploy:
+    needs: [build_api, build_web]
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    steps:
+      - name: Copy compose file to VPS
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY_1 }}
+          source: "docker-compose.prod.yml"
+          target: "~/rageroom/"
+
+      - name: Deploy on VPS
+        uses: appleboy/ssh-action@v1.0.3
+        env:
+          IMAGE_TAG: ${{ needs.build_web.outputs.tag }}
+          GHCR_TOKEN: $
