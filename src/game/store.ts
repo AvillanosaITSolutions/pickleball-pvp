@@ -1,5 +1,10 @@
 import { create } from 'zustand'
 
+// Lazy import to avoid loading socket.io-client until multiplayer is engaged.
+function emitPhotoSafe(url: string | null) {
+  import('./net').then((m) => m.emitPhoto(url)).catch(() => {})
+}
+
 export type ProjectileKind =
   | 'tomato'
   | 'egg'
@@ -156,6 +161,7 @@ export const useGame = create<State>((set, get) => ({
       else localStorage.setItem('photoUrl', url)
     } catch {}
     set({ photoUrl: url })
+    emitPhotoSafe(url)
   },
   setDummyPhotoUrl: (url) => {
     try {
@@ -163,6 +169,7 @@ export const useGame = create<State>((set, get) => ({
       else localStorage.setItem('dummyPhotoUrl', url)
     } catch {}
     set({ dummyPhotoUrl: url })
+    emitPhotoSafe(url)
   },
   addTime: (ms) => {
     const next = get().timeRemainingMs + ms

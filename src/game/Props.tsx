@@ -45,6 +45,7 @@ export function Props() {
 type PropKind =
   | 'bottle' | 'mug' | 'box' | 'book' | 'can' | 'stool' | 'monitor' | 'keyboard'
   | 'wineGlass' | 'plate' | 'vase' | 'lightBulb' | 'pictureFrame' | 'fishBowl' | 'lamp' | 'beerBottle'
+  | 'tv' | 'wallClock' | 'wallFrame' | 'trashCan' | 'trafficCone' | 'globe' | 'fireExtinguisher'
 
 interface PropSpec {
   kind: PropKind
@@ -73,6 +74,14 @@ function PropFor({ spec }: { spec: PropSpec }) {
     case 'stool':        return <Stool pos={pos} rotY={rotY} />
     case 'monitor':      return <Monitor pos={pos} rotY={rotY} />
     case 'keyboard':     return <Keyboard pos={pos} rotY={rotY} />
+    // New
+    case 'tv':              return <TV pos={pos} rotY={rotY} />
+    case 'wallClock':       return <WallClock pos={pos} rotY={rotY} />
+    case 'wallFrame':       return <WallFrame pos={pos} rotY={rotY} />
+    case 'trashCan':        return <TrashCan pos={pos} rotY={rotY} />
+    case 'trafficCone':     return <TrafficCone pos={pos} rotY={rotY} />
+    case 'globe':           return <Globe pos={pos} rotY={rotY} />
+    case 'fireExtinguisher':return <FireExtinguisher pos={pos} rotY={rotY} />
   }
 }
 
@@ -138,6 +147,34 @@ function generateLayout(): PropSpec[] {
   out.push({ kind: 'pictureFrame', pos: [-3.6, 0.82, 1.4], rotY: -0.6 })
   out.push({ kind: 'vase', pos: [-4.3, 0.82, 0.7], rotY: 0 })
   out.push({ kind: 'beerBottle', pos: [-3.7, 0.78, 0.8], rotY: 0.4 })
+
+  // ---- Wall decor (mounted near walls) ----
+  const wallL = -ROOM.width / 2 + 0.08
+  const wallR =  ROOM.width / 2 - 0.08
+  const wallB =  ROOM.depth / 2 - 0.08
+  // Left wall — three frames + clock
+  out.push({ kind: 'wallFrame', pos: [wallL, 2.0, -3.5], rotY:  Math.PI / 2 })
+  out.push({ kind: 'wallFrame', pos: [wallL, 2.4,  0.0], rotY:  Math.PI / 2 })
+  out.push({ kind: 'wallFrame', pos: [wallL, 2.0,  3.5], rotY:  Math.PI / 2 })
+  out.push({ kind: 'wallClock', pos: [wallL, 3.0, -1.5], rotY:  Math.PI / 2 })
+  // Right wall — frames + TV
+  out.push({ kind: 'wallFrame', pos: [wallR, 2.3, -2.0], rotY: -Math.PI / 2 })
+  out.push({ kind: 'wallFrame', pos: [wallR, 2.3,  3.5], rotY: -Math.PI / 2 })
+  out.push({ kind: 'tv',        pos: [wallR - 0.05, 2.4,  0.5], rotY: -Math.PI / 2 })
+  // Back wall (behind player) — pair of frames + clock
+  out.push({ kind: 'wallFrame', pos: [-2.5, 2.3, wallB], rotY: Math.PI })
+  out.push({ kind: 'wallFrame', pos: [ 2.5, 2.3, wallB], rotY: Math.PI })
+  out.push({ kind: 'wallClock', pos: [ 0.0, 2.9, wallB], rotY: Math.PI })
+
+  // ---- Extra floor objects ----
+  out.push({ kind: 'trashCan',         pos: [-ROOM.width / 2 + 0.8,  0.25,  4.5], rotY: 0 })
+  out.push({ kind: 'trashCan',         pos: [ ROOM.width / 2 - 0.8,  0.25,  4.0], rotY: 0 })
+  out.push({ kind: 'trafficCone',      pos: [-2.5, 0.18, -1.0], rotY: 0 })
+  out.push({ kind: 'trafficCone',      pos: [ 2.0, 0.18, -2.5], rotY: 0 })
+  out.push({ kind: 'trafficCone',      pos: [-0.5, 0.18,  2.5], rotY: 0 })
+  out.push({ kind: 'globe',            pos: [ 3.8, 0.95, -1.5], rotY: 0 })
+  out.push({ kind: 'fireExtinguisher', pos: [wallL + 0.1, 0.32, -5.0], rotY: 0 })
+  out.push({ kind: 'fireExtinguisher', pos: [wallR - 0.1, 0.32, -5.5], rotY: 0 })
 
   // Floor scatter
   const floor: Array<[number, number, number, PropKind]> = [
@@ -707,6 +744,186 @@ function PictureFrame({ pos, rotY }: { pos: [number, number, number]; rotY: numb
         <meshBasicMaterial color="#475569" />
       </mesh>
     </Breakable>
+  )
+}
+
+// --- New props ----------------------------------------------------------
+
+function TV({ pos, rotY }: { pos: [number, number, number]; rotY: number }) {
+  return (
+    <Breakable
+      pos={pos} rotY={rotY} mass={3} threshold={4}
+      shardColor="#1e293b" shardOpacity={0.9} shardCount={10}
+      collider={<CuboidCollider args={[0.55, 0.34, 0.04]} />}
+    >
+      <mesh castShadow>
+        <boxGeometry args={[1.1, 0.68, 0.07]} />
+        <meshStandardMaterial color="#0a0a0a" roughness={0.4} metalness={0.3} />
+      </mesh>
+      <mesh position={[0, 0, 0.04]}>
+        <planeGeometry args={[1.02, 0.6]} />
+        <meshBasicMaterial color="#0ea5e9" />
+      </mesh>
+    </Breakable>
+  )
+}
+
+function WallClock({ pos, rotY }: { pos: [number, number, number]; rotY: number }) {
+  return (
+    <Breakable
+      pos={pos} rotY={rotY} mass={0.4} threshold={3.8}
+      shardColor="#fafafa" shardOpacity={0.85} shardCount={7}
+      collider={<CylinderCollider args={[0.04, 0.22]} />}
+    >
+      <mesh castShadow rotation={[Math.PI / 2, 0, 0]}>
+        <cylinderGeometry args={[0.22, 0.22, 0.05, 24]} />
+        <meshStandardMaterial color="#fafafa" roughness={0.5} />
+      </mesh>
+      {/* rim */}
+      <mesh rotation={[Math.PI / 2, 0, 0]} position={[0, 0, 0.001]}>
+        <torusGeometry args={[0.22, 0.018, 8, 24]} />
+        <meshStandardMaterial color="#27272a" metalness={0.5} />
+      </mesh>
+      {/* hour hand */}
+      <mesh position={[0, 0.04, 0.03]}>
+        <boxGeometry args={[0.014, 0.1, 0.005]} />
+        <meshStandardMaterial color="#0a0a0a" />
+      </mesh>
+      {/* minute hand */}
+      <mesh position={[0.06, 0.0, 0.03]} rotation={[0, 0, -Math.PI / 3]}>
+        <boxGeometry args={[0.01, 0.16, 0.005]} />
+        <meshStandardMaterial color="#0a0a0a" />
+      </mesh>
+    </Breakable>
+  )
+}
+
+function WallFrame({ pos, rotY }: { pos: [number, number, number]; rotY: number }) {
+  // Decorative wall-mounted frame — bigger & flatter than PictureFrame, with
+  // a random "photo" color so the wall actually has art on it.
+  const palette = ['#f97316', '#0ea5e9', '#22c55e', '#a855f7', '#ef4444', '#facc15', '#14b8a6']
+  const photo = palette[Math.floor(Math.abs(pos[0] * 13 + pos[2] * 7)) % palette.length]
+  const wide = Math.abs(pos[0] * 17 + pos[2] * 11) % 2 < 1
+  const w = wide ? 0.55 : 0.4
+  const h = wide ? 0.38 : 0.5
+  return (
+    <Breakable
+      pos={pos} rotY={rotY} mass={0.5} threshold={3.8}
+      shardColor={photo} shardOpacity={0.9} shardCount={6}
+      collider={<CuboidCollider args={[w / 2, h / 2, 0.025]} />}
+    >
+      <mesh castShadow>
+        <boxGeometry args={[w, h, 0.04]} />
+        <meshStandardMaterial color="#78350f" roughness={0.7} />
+      </mesh>
+      {/* glass */}
+      <mesh position={[0, 0, 0.023]}>
+        <planeGeometry args={[w - 0.08, h - 0.08]} />
+        <meshStandardMaterial color="#ffffff" transparent opacity={0.3} roughness={0.1} />
+      </mesh>
+      {/* photo */}
+      <mesh position={[0, 0, 0.018]}>
+        <planeGeometry args={[w - 0.1, h - 0.1]} />
+        <meshBasicMaterial color={photo} />
+      </mesh>
+    </Breakable>
+  )
+}
+
+function TrashCan({ pos, rotY }: { pos: [number, number, number]; rotY: number }) {
+  return (
+    <RigidBody position={pos} rotation={[0, rotY, 0]} colliders={false} mass={1.2} restitution={0.25}>
+      <CylinderCollider args={[0.25, 0.18]} />
+      <mesh castShadow>
+        <cylinderGeometry args={[0.18, 0.16, 0.5, 18]} />
+        <meshStandardMaterial color="#4b5563" metalness={0.5} roughness={0.4} />
+      </mesh>
+      {/* rim */}
+      <mesh position={[0, 0.25, 0]}>
+        <torusGeometry args={[0.18, 0.015, 6, 18]} />
+        <meshStandardMaterial color="#374151" metalness={0.6} />
+      </mesh>
+    </RigidBody>
+  )
+}
+
+function TrafficCone({ pos, rotY }: { pos: [number, number, number]; rotY: number }) {
+  return (
+    <RigidBody position={pos} rotation={[0, rotY, 0]} colliders={false} mass={0.6} restitution={0.4}>
+      <CylinderCollider args={[0.18, 0.13]} />
+      {/* base */}
+      <mesh castShadow position={[0, -0.16, 0]}>
+        <boxGeometry args={[0.26, 0.03, 0.26]} />
+        <meshStandardMaterial color="#1c1917" />
+      </mesh>
+      {/* cone */}
+      <mesh castShadow position={[0, 0.02, 0]}>
+        <coneGeometry args={[0.11, 0.36, 16]} />
+        <meshStandardMaterial color="#f97316" roughness={0.6} />
+      </mesh>
+      {/* reflective stripe */}
+      <mesh position={[0, 0.06, 0]}>
+        <cylinderGeometry args={[0.085, 0.105, 0.05, 16]} />
+        <meshStandardMaterial color="#fafafa" emissive="#fafafa" emissiveIntensity={0.2} />
+      </mesh>
+    </RigidBody>
+  )
+}
+
+function Globe({ pos, rotY }: { pos: [number, number, number]; rotY: number }) {
+  return (
+    <Breakable
+      pos={pos} rotY={rotY} mass={0.8} threshold={3.5}
+      shardColor="#1d4ed8" shardOpacity={0.9} shardCount={8}
+      collider={<BallCollider args={[0.14]} />}
+    >
+      <mesh castShadow position={[0, 0.04, 0]}>
+        <sphereGeometry args={[0.14, 20, 16]} />
+        <meshStandardMaterial color="#1d4ed8" roughness={0.5} />
+      </mesh>
+      {/* land splotches */}
+      <mesh position={[0.09, 0.07, 0.07]}>
+        <sphereGeometry args={[0.06, 8, 6]} />
+        <meshStandardMaterial color="#16a34a" />
+      </mesh>
+      <mesh position={[-0.08, 0.02, 0.09]}>
+        <sphereGeometry args={[0.05, 8, 6]} />
+        <meshStandardMaterial color="#16a34a" />
+      </mesh>
+      {/* stand */}
+      <mesh position={[0, -0.13, 0]} castShadow>
+        <cylinderGeometry args={[0.07, 0.09, 0.04, 12]} />
+        <meshStandardMaterial color="#451a03" />
+      </mesh>
+    </Breakable>
+  )
+}
+
+function FireExtinguisher({ pos, rotY }: { pos: [number, number, number]; rotY: number }) {
+  return (
+    <RigidBody position={pos} rotation={[0, rotY, 0]} colliders={false} mass={2.5} restitution={0.2}>
+      <CylinderCollider args={[0.22, 0.1]} />
+      {/* body */}
+      <mesh castShadow>
+        <cylinderGeometry args={[0.1, 0.1, 0.42, 16]} />
+        <meshStandardMaterial color="#b91c1c" metalness={0.4} roughness={0.4} />
+      </mesh>
+      {/* neck */}
+      <mesh position={[0, 0.24, 0]} castShadow>
+        <cylinderGeometry args={[0.045, 0.06, 0.06, 12]} />
+        <meshStandardMaterial color="#1f2937" metalness={0.7} />
+      </mesh>
+      {/* nozzle */}
+      <mesh position={[0.1, 0.28, 0]} rotation={[0, 0, -Math.PI / 2.6]} castShadow>
+        <cylinderGeometry args={[0.018, 0.018, 0.18, 8]} />
+        <meshStandardMaterial color="#0a0a0a" />
+      </mesh>
+      {/* label */}
+      <mesh position={[0, 0, 0.101]}>
+        <planeGeometry args={[0.12, 0.18]} />
+        <meshBasicMaterial color="#fafafa" />
+      </mesh>
+    </RigidBody>
   )
 }
 

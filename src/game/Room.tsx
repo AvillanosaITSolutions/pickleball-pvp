@@ -36,7 +36,7 @@ export function Room() {
       {/* Ceiling */}
       <mesh position={[0, h, 0]} rotation={[Math.PI / 2, 0, 0]}>
         <planeGeometry args={[ROOM.width, ROOM.depth]} />
-        <meshStandardMaterial color="#0a0a0f" side={2} />
+        <meshStandardMaterial color="#e5e7eb" side={2} />
       </mesh>
 
       {/* Side walls */}

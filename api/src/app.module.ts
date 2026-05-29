@@ -5,6 +5,7 @@ import { AuthModule } from './auth/auth.module'
 import { UsersModule } from './users/users.module'
 import { CreditsModule } from './credits/credits.module'
 import { PaymentsModule } from './payments/payments.module'
+import { RoomsModule } from './rooms/rooms.module'
 import { User } from './users/user.entity'
 import { CreditLedger } from './credits/credit-ledger.entity'
 import { PaymentTransaction } from './payments/payment-transaction.entity'
@@ -24,6 +25,7 @@ import { PaymentTransaction } from './payments/payment-transaction.entity'
     UsersModule,
     CreditsModule,
     PaymentsModule,
+    RoomsModule,
   ],
 })
 export class AppModule {}

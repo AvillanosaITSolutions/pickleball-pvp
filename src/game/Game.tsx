@@ -8,6 +8,8 @@ import { HateWalls } from './HateWalls'
 import { Dummy } from './Dummy'
 import { Player } from './Player'
 import { Projectiles } from './Projectiles'
+import { RemotePlayers } from './RemotePlayer'
+import { MultiplayerHUD } from './MultiplayerHUD'
 import type { ThrowSpec } from './Projectiles'
 import { useGame, KIND_INFO, KIND_ORDER } from './store'
 import type { ProjectileKind } from './store'
@@ -343,6 +345,7 @@ export function Game() {
             </ErrorBoundary>
           )}
           <ErrorBoundary label="Player"><Player onThrow={addThrow} /></ErrorBoundary>
+          <ErrorBoundary label="RemotePlayers" recoverable><RemotePlayers /></ErrorBoundary>
           <ErrorBoundary label="Projectiles" recoverable>
             <Projectiles throws={throws} onLanded={removeThrow} />
           </ErrorBoundary>
@@ -352,6 +355,8 @@ export function Game() {
         <ErrorBoundary label="WorldSplats" recoverable><WorldSplats /></ErrorBoundary>
         <ErrorBoundary label="SessionTicker" recoverable><SessionTicker /></ErrorBoundary>
       </Canvas>
+
+      <ErrorBoundary label="MultiplayerHUD"><MultiplayerHUD /></ErrorBoundary>
 
       <div className="hud">
         <ErrorBoundary label="SessionTimer"><SessionTimer /></ErrorBoundary>

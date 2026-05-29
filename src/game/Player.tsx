@@ -13,6 +13,7 @@ import { WALL } from './constants'
 import { playKind } from './audio'
 import { breakRegistry } from './Props'
 import { useWorldSplats } from './WorldSplats'
+import { emitPose } from './net'
 
 // Convenient wrapper so we can call addWorldSplat() without subscribing
 const addWorldSplat = (s: Parameters<ReturnType<typeof useWorldSplats.getState>['add']>[0]) =>
@@ -39,6 +40,7 @@ export function Player({ onThrow }: Props) {
   const bobAmpRef = useRef(0)
   const lastFireRef = useRef(0)
   const stretchAudioRef = useRef<HTMLAudioElement | null>(null)
+  const lastPoseEmitRef = useRef(0)
 
   function getStretch() {
     if (!stretchAudioRef.current) {
@@ -377,6 +379,14 @@ export function Player({ onThrow }: Props) {
       groundedRef.current = true
     }
     camera.position.copy(posRef.current)
+
+    // Emit our pose to multiplayer peers ~10Hz
+    const nowMs = performance.now()
+    if (nowMs - lastPoseEmitRef.current > 100) {
+      lastPoseEmitRef.current = nowMs
+      const euler = new THREE.Euler().setFromQuaternion(camera.quaternion, 'YXZ')
+      emitPose(posRef.current.x, posRef.current.y, posRef.current.z, euler.y)
+    }
 
     // ===== Head-bob =====
     // Only bob when grounded AND actively moving horizontally.
