@@ -2,8 +2,8 @@
 # Routes through the EXISTING visa-reminder-traefik (certresolver "letsencrypt")
 # and reuses the existing Postgres, all on the external visa-reminder_default network.
 # HTTPS via sslip.io hostnames (free, no domain needed):
-#   web → https://rageroom.88.222.245.88.sslip.io
-#   api → https://api-rageroom.88.222.245.88.sslip.io
+#   web → https://rageroom.88-222-245-88.nip.io
+#   api → https://api-rageroom.88-222-245-88.nip.io
 #
 # Required env vars (~/rageroom/.env, written by CI from GitHub secrets):
 #   GHCR_REPO, IMAGE_TAG, POSTGRES_USER, POSTGRES_PASSWORD, POSTGRES_DB,
@@ -20,7 +20,7 @@ services:
     environment:
       NODE_ENV: production
       PORT: 3001
-      WEB_ORIGIN: https://rageroom.88.222.245.88.sslip.io
+      WEB_ORIGIN: https://rageroom.88-222-245-88.nip.io
       DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@visa-reminder-postgres:5432/${POSTGRES_DB}
       AUTH0_DOMAIN: ${AUTH0_DOMAIN}
       AUTH0_AUDIENCE: ${AUTH0_AUDIENCE}
@@ -34,7 +34,7 @@ services:
     labels:
       - "traefik.enable=true"
       - "traefik.docker.network=visa-reminder_default"
-      - "traefik.http.routers.rageroom-api.rule=Host(`api-rageroom.88.222.245.88.sslip.io`)"
+      - "traefik.http.routers.rageroom-api.rule=Host(`api-rageroom.88-222-245-88.nip.io`)"
       - "traefik.http.routers.rageroom-api.entrypoints=websecure"
       - "traefik.http.routers.rageroom-api.tls=true"
       - "traefik.http.routers.rageroom-api.tls.certresolver=letsencrypt"
@@ -50,7 +50,7 @@ services:
     labels:
       - "traefik.enable=true"
       - "traefik.docker.network=visa-reminder_default"
-      - "traefik.http.routers.rageroom-web.rule=Host(`rageroom.88.222.245.88.sslip.io`)"
+      - "traefik.http.routers.rageroom-web.rule=Host(`rageroom.88-222-245-88.nip.io`)"
       - "traefik.http.routers.rageroom-web.entrypoints=websecure"
       - "traefik.http.routers.rageroom-web.tls=true"
       - "traefik.http.routers.rageroom-web.tls.certresolver=letsencrypt"

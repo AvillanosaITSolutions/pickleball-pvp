@@ -58,7 +58,7 @@ jobs:
           file: ./Dockerfile
           push: true
           build-args: |
-            VITE_API_BASE_URL=https://api-rageroom.88.222.245.88.sslip.io
+            VITE_API_BASE_URL=https://api-rageroom.88-222-245-88.nip.io
           tags: |
             ${{ env.REGISTRY }}/${{ steps.meta.outputs.image_base }}/web:${{ steps.meta.outputs.tag }}
             ${{ env.REGISTRY }}/${{ steps.meta.outputs.image_base }}/web:latest
