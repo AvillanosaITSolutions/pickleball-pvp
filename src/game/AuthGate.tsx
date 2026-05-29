@@ -33,7 +33,7 @@ export function AuthGate({ children }: Props) {
   }
 
   if (!isAuthenticated) {
-    return <LandingPage onLogin={() => loginWithRedirect()} onSignup={() => loginWithRedirect({ authorizationParams: { screen_hint: 'signup' } })} />
+    return <LandingPage onLogin={() => loginWithRedirect()} onSignup={() => loginWithRedirect()} />
   }
 
   return (
@@ -113,6 +113,17 @@ const spinner: React.CSSProperties = {
   animation: 'spin 0.8s linear infinite',
 }
 
+// Hand-built punk-poster landing. Anton (display) + JetBrains Mono (body) from
+// Google Fonts. Asymmetric, rotated stickers, ticker tape — intentionally NOT
+// a generic vibe-coded SaaS template.
+
+const FONT_LINK = (
+  <link
+    href="https://fonts.googleapis.com/css2?family=Anton&family=JetBrains+Mono:wght@400;700&family=Archivo+Black&display=swap"
+    rel="stylesheet"
+  />
+)
+
 function LandingPage({ onLogin, onSignup }: { onLogin: () => void; onSignup: () => void }) {
   return (
     <div
@@ -120,192 +131,315 @@ function LandingPage({ onLogin, onSignup }: { onLogin: () => void; onSignup: () 
         position: 'fixed',
         inset: 0,
         background:
-          'radial-gradient(circle at 20% 20%, rgba(249,115,22,0.18), transparent 55%), ' +
-          'radial-gradient(circle at 80% 80%, rgba(59,130,246,0.18), transparent 55%), ' +
-          'linear-gradient(180deg, #0a0a0f 0%, #18181b 100%)',
-        color: '#fafafa',
+          // Concrete-ish noise via stacked gradients (no image asset needed)
+          'repeating-linear-gradient(45deg, rgba(255,255,255,0.012) 0 2px, transparent 2px 6px), ' +
+          'radial-gradient(circle at 75% 12%, rgba(220,38,38,0.22), transparent 45%), ' +
+          'radial-gradient(circle at 12% 88%, rgba(234,179,8,0.18), transparent 45%), ' +
+          '#0c0c0c',
+        color: '#f5f1e8',
         overflowY: 'auto',
-        fontFamily: 'system-ui, -apple-system, "Segoe UI", sans-serif',
+        fontFamily: '"JetBrains Mono", ui-monospace, Menlo, monospace',
       }}
     >
-      <style>{`@keyframes spin { to { transform: rotate(360deg) } }
-        @keyframes float { 0%,100% { transform: translateY(0) } 50% { transform: translateY(-6px) } }`}</style>
+      {FONT_LINK}
+      <style>{`
+        @keyframes spin { to { transform: rotate(360deg) } }
+        @keyframes tickerL { from { transform: translateX(0) } to { transform: translateX(-50%) } }
+        @keyframes tickerR { from { transform: translateX(-50%) } to { transform: translateX(0) } }
+        @keyframes wiggle { 0%,100% { transform: rotate(var(--r,0deg)) } 50% { transform: rotate(calc(var(--r,0deg) + 1.2deg)) } }
+        .display { font-family: "Anton", "Archivo Black", "Impact", sans-serif; letter-spacing: 0.5px; }
+      `}</style>
 
-      <div style={{ maxWidth: 980, margin: '0 auto', padding: '64px 24px 96px' }}>
-        {/* Hero */}
-        <div style={{ textAlign: 'center', marginBottom: 56 }}>
-          <div
-            style={{
-              display: 'inline-block',
-              padding: '4px 12px',
-              borderRadius: 999,
-              background: 'rgba(249,115,22,0.15)',
-              border: '1px solid rgba(249,115,22,0.4)',
-              color: '#fdba74',
-              fontSize: 12,
-              letterSpacing: 1,
-              textTransform: 'uppercase',
-              marginBottom: 18,
-            }}
-          >
-            5 minutes free on us
-          </div>
+      {/* TOP TICKER */}
+      <Ticker
+        direction="L"
+        items={['SMASH', '·', 'BREAK', '·', 'SHATTER', '·', 'OBLITERATE', '·', 'PULVERIZE', '·', 'RUIN', '·', 'DECIMATE', '·']}
+        bg="#dc2626"
+        fg="#0c0c0c"
+      />
+
+      <div style={{ position: 'relative', maxWidth: 1080, margin: '0 auto', padding: '56px 28px 120px' }}>
+        {/* HUGE SCREAMING TITLE */}
+        <div style={{ position: 'relative' }}>
           <h1
+            className="display"
             style={{
               margin: 0,
-              fontSize: 'clamp(40px, 7vw, 72px)',
-              fontWeight: 800,
-              lineHeight: 1.05,
-              letterSpacing: -1,
-              background: 'linear-gradient(180deg, #fafafa 0%, #fb923c 100%)',
-              WebkitBackgroundClip: 'text',
-              WebkitTextFillColor: 'transparent',
+              fontSize: 'clamp(72px, 16vw, 220px)',
+              lineHeight: 0.85,
+              textTransform: 'uppercase',
+              color: '#f5f1e8',
+              textShadow: '6px 6px 0 #dc2626',
             }}
           >
-            Wall of Anger
+            Wall<br />of<span style={{ color: '#facc15' }}> Anger</span>
           </h1>
-          <p
-            style={{
-              marginTop: 16,
-              fontSize: 'clamp(16px, 2vw, 20px)',
-              opacity: 0.8,
-              maxWidth: 560,
-              marginLeft: 'auto',
-              marginRight: 'auto',
-              lineHeight: 1.5,
-            }}
-          >
-            A virtual rage room. Throw tomatoes, eggs, bricks and TVs at the wall.
-            Smash bottles and vases. Upload a face. Invite a friend and break things together.
-          </p>
 
+          {/* TAPED STICKER */}
           <div
             style={{
-              marginTop: 28,
-              display: 'flex',
-              gap: 12,
-              justifyContent: 'center',
-              flexWrap: 'wrap',
+              position: 'absolute',
+              top: 8,
+              right: 0,
+              padding: '14px 18px',
+              background: '#facc15',
+              color: '#0c0c0c',
+              transform: 'rotate(8deg)',
+              fontFamily: '"Anton", sans-serif',
+              fontSize: 22,
+              lineHeight: 1,
+              textTransform: 'uppercase',
+              boxShadow: '0 4px 0 rgba(0,0,0,0.35)',
+              border: '3px solid #0c0c0c',
+              animation: 'wiggle 3.5s ease-in-out infinite',
+              ['--r' as any]: '8deg',
             }}
           >
-            <button onClick={onSignup} style={primaryBtn}>
-              Start free — 5 minutes
-            </button>
-            <button onClick={onLogin} style={secondaryBtn}>
-              I already have an account
-            </button>
+            5 min<br />FREE.<br />
+            <span style={{ fontSize: 11, fontFamily: '"JetBrains Mono", monospace' }}>no card.</span>
           </div>
-          <p style={{ marginTop: 12, fontSize: 12, opacity: 0.5 }}>
-            No card required for the trial. Top up with PayMongo when you run out.
+        </div>
+
+        {/* SUB-MANIFESTO */}
+        <div
+          style={{
+            marginTop: 28,
+            display: 'grid',
+            gridTemplateColumns: 'minmax(0, 1fr) auto',
+            alignItems: 'end',
+            gap: 24,
+            borderTop: '2px solid #f5f1e8',
+            borderBottom: '2px solid #f5f1e8',
+            padding: '18px 0',
+          }}
+        >
+          <p style={{ margin: 0, fontSize: 'clamp(14px, 1.4vw, 17px)', lineHeight: 1.5, maxWidth: 640 }}>
+            A browser rage room. You throw tomatoes, eggs, bricks, bowling balls,
+            a television. You upload a face if you have someone in mind.
+            You hand out the room code if you want company. Nothing breaks in real life.
           </p>
+          <div
+            style={{
+              fontFamily: '"Anton", sans-serif',
+              fontSize: 14,
+              letterSpacing: 2,
+              border: '2px solid #facc15',
+              color: '#facc15',
+              padding: '6px 10px',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            ED. 001 · MNL
+          </div>
         </div>
 
-        {/* Features */}
-        <div
-          style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
-            gap: 16,
-            marginBottom: 56,
-          }}
-        >
-          <Feature emoji="🍅" title="Throw anything"
-            body="Tomatoes, eggs, bananas, bricks, bowling balls — even a chair." />
-          <Feature emoji="📸" title="Upload a face"
-            body="Pin a photo on the dummy. Your call who deserves it." />
-          <Feature emoji="🔫" title="Pull out a pistol"
-            body="Switch to the gun for actual ranged carnage with real holes in props." />
-          <Feature emoji="👥" title="Bring a friend"
-            body="Share a 6-letter room code. See each other's avatars in real time." />
+        {/* CTA STACK */}
+        <div style={{ marginTop: 36, display: 'flex', gap: 14, flexWrap: 'wrap', alignItems: 'center' }}>
+          <button onClick={onSignup} className="display" style={brickBtn}>
+            ► Sign up · throw stuff
+          </button>
+          <button onClick={onLogin} style={ghostBtn}>
+            $ already_a_user --login
+          </button>
         </div>
 
-        {/* How it works */}
+        {/* MANIFESTO STICKERS — overlapping rotated notes, not a card grid */}
+        <div style={{ marginTop: 96, position: 'relative', minHeight: 260 }}>
+          <Sticker rot={-3} top={0}   left="2%"  bg="#f5f1e8" fg="#0c0c0c" head="EVERYTHING SHATTERS"
+            body="Bottles. Vases. Lightbulbs. Picture frames. Even the TV on the wall.
+                  Hit something hard enough and it explodes into shards." />
+          <Sticker rot={4}  top={40}  left="30%" bg="#dc2626" fg="#f5f1e8" head="BRING THE PISTOL"
+            body="Switch to the gun. Real raycast holes appear on whatever you hit.
+                  Don't aim it at the wall, aim it at the porcelain plate stack." />
+          <Sticker rot={-2} top={100} left="58%" bg="#facc15" fg="#0c0c0c" head="THE FACE GOES HERE"
+            body="Upload a photo. The dummy wears it. You decide what happens next.
+                  We don't keep the image. It's gone the moment you close the tab." />
+          <Sticker rot={6}  top={160} left="10%" bg="#0c0c0c" fg="#facc15" head="WITH FRIENDS"
+            body="Make a room. Send the 6-letter code. They show up as a blue capsule
+                  with their name on it. You see each other's throws."
+            border />
+        </div>
+
+        {/* RULES — fake newsprint columns */}
         <div
           style={{
-            background: 'rgba(255,255,255,0.04)',
-            border: '1px solid rgba(255,255,255,0.08)',
-            borderRadius: 12,
+            marginTop: 80,
+            border: '2px solid #f5f1e8',
             padding: 24,
+            background: 'rgba(245,241,232,0.04)',
             display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
-            gap: 18,
+            gridTemplateColumns: 'auto 1fr',
+            columnGap: 28,
+            rowGap: 14,
           }}
         >
-          <Step n="1" title="Sign in" body="One click via Google, Facebook, or email." />
-          <Step n="2" title="Get 5 min free" body="Walk in, look around, start swinging." />
-          <Step n="3" title="Top up if you like" body="Plans from ₱30. PayMongo handles checkout." />
+          <SectionTitle>HOW IT WORKS</SectionTitle>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 22 }}>
+            <Rule n="01" head="LOG IN" body="Google, Facebook, or email. No phone number, no SMS code, no ID upload." />
+            <Rule n="02" head="GET 5 MIN" body="The timer starts ticking the moment your mouse locks in the room." />
+            <Rule n="03" head="TOP UP" body="From ₱30. PayMongo handles cards, GCash, Maya, GrabPay." />
+          </div>
         </div>
 
-        <p style={{ textAlign: 'center', marginTop: 40, opacity: 0.4, fontSize: 12 }}>
-          Headphones recommended. Use WASD + mouse. Best in Chrome on desktop.
-        </p>
+        {/* FOOTER LINE */}
+        <div
+          style={{
+            marginTop: 56,
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            gap: 16,
+            fontSize: 11,
+            opacity: 0.55,
+            letterSpacing: 1,
+            textTransform: 'uppercase',
+            borderTop: '1px dashed rgba(245,241,232,0.3)',
+            paddingTop: 18,
+            flexWrap: 'wrap',
+          }}
+        >
+          <span>Wasd · mouse · headphones recommended</span>
+          <span>Chrome / desktop · webGL required</span>
+          <span>Made in Manila · not actually breaking anything</span>
+        </div>
       </div>
+
+      {/* BOTTOM TICKER (opposite direction) */}
+      <Ticker
+        direction="R"
+        items={['HOSTED ON A POTATO', '·', 'NO REFUNDS ON SHARDS', '·', 'PHYSICS BY RAPIER', '·', 'AUTH BY AUTH0', '·']}
+        bg="#facc15"
+        fg="#0c0c0c"
+        bottom
+      />
     </div>
   )
 }
 
-function Feature({ emoji, title, body }: { emoji: string; title: string; body: string }) {
+function Ticker({
+  items, direction, bg, fg, bottom,
+}: { items: string[]; direction: 'L' | 'R'; bg: string; fg: string; bottom?: boolean }) {
+  const row = (
+    <div style={{ display: 'inline-flex', gap: 24, padding: '10px 12px', whiteSpace: 'nowrap' }}>
+      {items.map((it, i) => (
+        <span
+          key={i}
+          className="display"
+          style={{ fontSize: 18, letterSpacing: 2, textTransform: 'uppercase' }}
+        >
+          {it}
+        </span>
+      ))}
+    </div>
+  )
   return (
     <div
       style={{
-        background: 'rgba(255,255,255,0.04)',
-        border: '1px solid rgba(255,255,255,0.08)',
-        borderRadius: 10,
-        padding: 18,
+        position: bottom ? 'sticky' : 'static',
+        bottom: bottom ? 0 : undefined,
+        background: bg,
+        color: fg,
+        borderTop: bottom ? `3px solid #0c0c0c` : 'none',
+        borderBottom: bottom ? 'none' : `3px solid #0c0c0c`,
+        overflow: 'hidden',
       }}
     >
-      <div style={{ fontSize: 28, marginBottom: 8, animation: 'float 4s ease-in-out infinite' }}>{emoji}</div>
-      <div style={{ fontWeight: 600, marginBottom: 4 }}>{title}</div>
-      <div style={{ opacity: 0.65, fontSize: 14, lineHeight: 1.45 }}>{body}</div>
-    </div>
-  )
-}
-
-function Step({ n, title, body }: { n: string; title: string; body: string }) {
-  return (
-    <div>
       <div
         style={{
-          width: 28,
-          height: 28,
-          borderRadius: '50%',
-          background: '#f97316',
-          color: '#0a0a0f',
-          fontWeight: 700,
           display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          marginBottom: 10,
+          width: 'max-content',
+          animation: `${direction === 'L' ? 'tickerL' : 'tickerR'} 28s linear infinite`,
         }}
       >
-        {n}
+        {row}
+        {row}
       </div>
-      <div style={{ fontWeight: 600, marginBottom: 4 }}>{title}</div>
-      <div style={{ opacity: 0.65, fontSize: 14, lineHeight: 1.45 }}>{body}</div>
     </div>
   )
 }
 
-const primaryBtn: React.CSSProperties = {
-  background: 'linear-gradient(180deg, #f97316 0%, #ea580c 100%)',
-  color: '#fff',
-  border: 'none',
-  padding: '14px 28px',
-  borderRadius: 8,
-  fontSize: 16,
-  fontWeight: 600,
-  cursor: 'pointer',
-  fontFamily: 'inherit',
-  boxShadow: '0 8px 24px rgba(249,115,22,0.35)',
-  transition: 'transform 0.1s',
+function Sticker({
+  rot, top, left, bg, fg, head, body, border,
+}: {
+  rot: number; top: number; left: string; bg: string; fg: string
+  head: string; body: string; border?: boolean
+}) {
+  return (
+    <div
+      style={{
+        position: 'absolute',
+        top,
+        left,
+        transform: `rotate(${rot}deg)`,
+        background: bg,
+        color: fg,
+        padding: '14px 16px',
+        maxWidth: 320,
+        boxShadow: '0 6px 0 rgba(0,0,0,0.35)',
+        border: border ? '3px solid #facc15' : '3px solid #0c0c0c',
+      }}
+    >
+      <div
+        className="display"
+        style={{ fontSize: 22, lineHeight: 1, marginBottom: 6, textTransform: 'uppercase' }}
+      >
+        {head}
+      </div>
+      <div style={{ fontSize: 12, lineHeight: 1.45, opacity: 0.92 }}>{body}</div>
+    </div>
+  )
 }
-const secondaryBtn: React.CSSProperties = {
-  background: 'transparent',
-  color: '#fafafa',
-  border: '1px solid rgba(255,255,255,0.25)',
-  padding: '14px 24px',
-  borderRadius: 8,
-  fontSize: 16,
+
+function SectionTitle({ children }: { children: React.ReactNode }) {
+  return (
+    <div
+      className="display"
+      style={{
+        writingMode: 'vertical-rl',
+        transform: 'rotate(180deg)',
+        fontSize: 38,
+        letterSpacing: 4,
+        color: '#facc15',
+        borderRight: '2px solid #facc15',
+        paddingRight: 14,
+      }}
+    >
+      {children}
+    </div>
+  )
+}
+
+function Rule({ n, head, body }: { n: string; head: string; body: string }) {
+  return (
+    <div>
+      <div style={{ fontSize: 11, color: '#facc15', letterSpacing: 2, marginBottom: 4 }}>§ {n}</div>
+      <div className="display" style={{ fontSize: 22, lineHeight: 1.05, marginBottom: 6, textTransform: 'uppercase' }}>
+        {head}
+      </div>
+      <div style={{ fontSize: 12, lineHeight: 1.45, opacity: 0.78 }}>{body}</div>
+    </div>
+  )
+}
+
+const brickBtn: React.CSSProperties = {
+  background: '#dc2626',
+  color: '#f5f1e8',
+  border: '3px solid #0c0c0c',
+  padding: '16px 24px',
+  fontSize: 22,
   cursor: 'pointer',
+  textTransform: 'uppercase',
+  boxShadow: '6px 6px 0 #0c0c0c',
+  letterSpacing: 1,
   fontFamily: 'inherit',
+}
+const ghostBtn: React.CSSProperties = {
+  background: 'transparent',
+  color: '#f5f1e8',
+  border: '2px solid #f5f1e8',
+  padding: '14px 18px',
+  fontSize: 13,
+  letterSpacing: 1,
+  cursor: 'pointer',
+  fontFamily: '"JetBrains Mono", monospace',
 }
