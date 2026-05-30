@@ -248,7 +248,7 @@ export class SabongRoom extends Room<SabongState> {
       const px = ox - t * ax, pz = oz - t * az;
       const perp = Math.hypot(px, pz);
       if (perp > HIT_RADIUS) return;
-      if (!best || t < best.t) best = { other, t };
+      if (!best || t < best.t) best = { other: other as Bird, t };
     });
 
     const endT = best ? best.t : w.range;
