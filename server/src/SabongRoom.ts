@@ -136,12 +136,12 @@ export class SabongRoom extends Room<SabongState> {
     const now = Date.now();
     // Regen (only while fighting)
     if (this.state.phase === "fighting") {
-      this.state.birds.forEach((b) => {
-        if (!b.alive) return;
+      for (const b of this.state.birds.values()) {
+        if (!b.alive) continue;
         if (b.regenUntil > now) {
           b.hp = Math.min(b.maxHp, b.hp + 3);
         }
-      });
+      }
     }
     // Drop spawner — only during a live match, capped by MAX_ACTIVE_ITEMS.
     if (this.state.phase === "fighting" && now - this.lastDropAt >= DROP_INTERVAL_MS) {
@@ -169,9 +169,9 @@ export class SabongRoom extends Room<SabongState> {
       x = Math.cos(a) * rr;
       z = Math.sin(a) * rr;
       let tooClose = false;
-      this.state.birds.forEach((b) => {
+      for (const b of this.state.birds.values()) {
         if (Math.hypot(b.x - x, b.z - z) < 2) tooClose = true;
-      });
+      }
       if (!tooClose) break;
     }
     const id = `i${this.dropCounter++}`;
@@ -194,18 +194,18 @@ export class SabongRoom extends Room<SabongState> {
 
     const halfCone = w.halfCone ?? Math.PI / 3;
     let hit: Bird | null = null;
-    this.state.birds.forEach((other) => {
-      if (other.id === me.id || !other.alive) return;
+    for (const other of this.state.birds.values()) {
+      if (other.id === me.id || !other.alive) continue;
       const dx = other.x - me.x;
       const dz = other.z - me.z;
       const dist = Math.hypot(dx, dz);
-      if (dist > w.range) return;
+      if (dist > w.range) continue;
       const angleTo = Math.atan2(-dx, -dz);
       let delta = Math.abs(angleTo - me.ry) % (Math.PI * 2);
       if (delta > Math.PI) delta = Math.PI * 2 - delta;
-      if (delta > halfCone) return;
+      if (delta > halfCone) continue;
       hit = other;
-    });
+    }
 
     if (hit) {
       const target = hit as Bird;
@@ -239,17 +239,17 @@ export class SabongRoom extends Room<SabongState> {
 
     // Ray from me, find closest opponent hit within range.
     let best: { other: Bird; t: number } | null = null;
-    this.state.birds.forEach((other) => {
-      if (other.id === me.id || !other.alive) return;
+    for (const other of this.state.birds.values()) {
+      if (other.id === me.id || !other.alive) continue;
       const ox = other.x - me.x;
       const oz = other.z - me.z;
       const t: number = ox * ax + oz * az;
-      if (t < 0 || t > w.range) return;
+      if (t < 0 || t > w.range) continue;
       const px = ox - t * ax, pz = oz - t * az;
       const perp = Math.hypot(px, pz);
-      if (perp > HIT_RADIUS) return;
-      if (!best || t < best.t) best = { other: other as Bird, t };
-    });
+      if (perp > HIT_RADIUS) continue;
+      if (!best || t < best.t) best = { other, t };
+    }
 
     const endT = best ? best.t : w.range;
     const ex = me.x + ax * endT;
@@ -337,10 +337,10 @@ export class SabongRoom extends Room<SabongState> {
     while (this.state.rematchReady.length > 0) this.state.rematchReady.pop();
     // Wipe items so the next match starts clean.
     const ids: string[] = [];
-    this.state.items.forEach((_, id) => ids.push(id));
-    ids.forEach((id) => this.state.items.delete(id));
+    for (const [, id] of this.state.items) ids.push(id);
+    for (const id of ids) this.state.items.delete(id);
     this.lastDropAt = Date.now(); // first drop ~DROP_INTERVAL_MS into the match
-    this.state.birds.forEach((b) => {
+    for (const b of this.state.birds.values()) {
       const spawn = SPAWNS[b.spawnIndex] ?? SPAWNS[0];
       b.x = spawn.x;
       b.y = 0.9;
@@ -356,7 +356,7 @@ export class SabongRoom extends Room<SabongState> {
       b.hasteUntil = 0;
       b.regenUntil = 0;
       b.immortalUntil = 0;
-    });
+    }
     setTimeout(() => {
       if (this.state.birds.size >= 2 && this.state.phase === "waiting") {
         this.state.phase = "fighting";
@@ -366,7 +366,9 @@ export class SabongRoom extends Room<SabongState> {
 
   private checkWinner() {
     const survivors: Bird[] = [];
-    this.state.birds.forEach((b) => { if (b.alive) survivors.push(b); });
+    for (const b of this.state.birds.values()) {
+      if (b.alive) survivors.push(b);
+    }
     if (survivors.length <= 1) {
       this.state.phase = "over";
       this.state.winner = survivors[0]?.id ?? "";
