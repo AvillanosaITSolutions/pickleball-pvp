@@ -11,6 +11,7 @@ import { dummyState, fireFlash } from './dummyState'
 import { triggerImpact } from './effects'
 import { WALL } from './constants'
 import { playKind } from './audio'
+import { playSfx } from './sfx'
 import { breakRegistry } from './Props'
 import { useWorldSplats } from './WorldSplats'
 import { emitPose, emitThrow, emitWorldSplat } from './net'
@@ -350,6 +351,8 @@ export function Player({ onThrow }: Props) {
     onThrow(spec)
     emitThrow(spec)
     registerThrow()
+    // Whoosh on release — louder for higher-power throws.
+    playSfx('whoosh', { volume: 0.25 + power * 0.35 })
   }
 
   useFrame((_, dt) => {

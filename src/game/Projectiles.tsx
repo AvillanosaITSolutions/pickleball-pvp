@@ -13,6 +13,7 @@ import { DUMMY_NAME, DUMMY_HEAD_NAME } from './Dummy'
 import { ProjectileShape, getCollider } from './ProjectileShapes'
 import { triggerImpact } from './effects'
 import { playKind } from './audio'
+import { playSfx } from './sfx'
 
 export interface ThrowSpec {
   id: number
@@ -169,6 +170,8 @@ function Projectile({ spec, onLanded }: { spec: ThrowSpec; onLanded: (id: number
       const force = Math.min(1, speed / 32) * (0.6 + info.damage / 14) * (isHead ? 1.2 : 1)
       triggerImpact(force)
       playKind(spec.kind, 0.3 + force * 0.6)
+      // Chunky body-impact layer on top of the per-kind thud.
+      playSfx('hitDummy', { volume: 0.25 + force * 0.4 })
       if (spec.kind !== 'chair' && spec.kind !== 'tv') {
         doneRef.current = true
         onLanded(spec.id)

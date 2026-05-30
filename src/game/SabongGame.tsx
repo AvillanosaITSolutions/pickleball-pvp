@@ -7,6 +7,7 @@ import { SabongArena, ARENA_RADIUS } from './SabongArena'
 import { ErrorBoundary } from './ErrorBoundary'
 import { useMultiplayer } from './multiplayer'
 import { getRoom, sendRoomMessage, leaveRoom } from './net'
+import { playMusic, stopMusic, playSfx, isMuted, toggleMuted, subscribeAudio } from './sfx'
 
 // Sabong = top-down arena fight, but rendered in the same 3D environment as
 // the rage room. Each player is a rooster (capsule + comb + beak). Click pecks
@@ -161,12 +162,14 @@ export function SabongGame({ onExit }: { onExit?: () => void } = {}) {
     r.onStateChange(sync)
     r.onMessage('peckHit', (p: { from: string; to: string; hp: number }) => {
       peckStartTimes.set(p.from, performance.now())
-      if (p.to === myId) setHitFlash(performance.now())
+      if (p.to === myId) { setHitFlash(performance.now()); playSfx('hurt') }
       if (p.from === myId) setPeckFlash(performance.now())
+      playSfx('peckHit')
     })
     r.onMessage('peckMiss', (p: { from: string }) => {
       peckStartTimes.set(p.from, performance.now())
       if (p.from === myId) setPeckFlash(performance.now())
+      playSfx('peckSwing')
     })
     const addBeam = (p: { from: string; ex: number; ez: number; weapon: string; to?: string }) => {
       const shooter = readRoomState().birds.find((b) => b.id === p.from)
@@ -178,14 +181,40 @@ export function SabongGame({ onExit }: { onExit?: () => void } = {}) {
       // GC old beams
       while (activeBeams.length > 16) activeBeams.shift()
       if (p.from === myId) setPeckFlash(performance.now())
-      if (p.to === myId) setHitFlash(performance.now())
+      if (p.to === myId) { setHitFlash(performance.now()); playSfx('hurt') }
     }
-    r.onMessage('shotHit', (p: any) => addBeam(p))
-    r.onMessage('shotMiss', (p: any) => addBeam(p))
+    r.onMessage('shotHit', (p: any) => { addBeam(p); playSfx('shotHit') })
+    r.onMessage('shotMiss', (p: any) => { addBeam(p); playSfx('shoot') })
     sync()
   }, [myId])
 
-  useEffect(() => () => { /* leave on unmount */ leaveRoom() }, [])
+  // Phase-driven music + endgame stingers. The first user gesture (the
+  // lobby's join button) unblocks autoplay, so by the time we reach Sabong
+  // music actually plays.
+  useEffect(() => {
+    if (view.phase === 'waiting') playMusic('sabongWaiting')
+    else if (view.phase === 'fighting') playMusic('sabong')
+    else if (view.phase === 'over') {
+      if (view.winner && myId && view.winner === myId) { playMusic('sabongVictory'); playSfx('victory') }
+      else if (view.winner) { stopMusic(); playSfx('death') }
+      else stopMusic()
+    }
+  }, [view.phase, view.winner, myId])
+
+  // Item drop chime — play when a new item id appears in state.
+  const knownItemIds = useRef<Set<string>>(new Set())
+  useEffect(() => {
+    const next = new Set<string>()
+    for (const it of view.items) {
+      next.add(it.id)
+      if (!knownItemIds.current.has(it.id)) playSfx('itemSpawn')
+    }
+    // If an item id we knew is gone, the player picked it up (or it expired).
+    // Picked-up items are also caught by the explicit pickup path below.
+    knownItemIds.current = next
+  }, [view.items])
+
+  useEffect(() => () => { /* leave on unmount */ leaveRoom(); stopMusic() }, [])
 
   const me = view.birds.find((b) => b.id === myId)
   const opponent = view.birds.find((b) => b.id !== myId)
@@ -320,6 +349,7 @@ function RoosterController({ phase, alive, myBird, camMode, items }: RoosterCont
       if (e.code === 'Space' && groundedRef.current && alive) {
         vyRef.current = JUMP_V
         groundedRef.current = false
+        playSfx('jump')
         e.preventDefault()
       }
     }
@@ -355,8 +385,10 @@ function RoosterController({ phase, alive, myBird, camMode, items }: RoosterCont
         const fwd = new THREE.Vector3()
         cameraRef.current.getWorldDirection(fwd)
         sendRoomMessage('shoot', { dx: fwd.x, dz: fwd.z })
+        playSfx('shoot')
       } else {
         sendRoomMessage('peck')
+        playSfx('peckSwing')
       }
       localPeckStart.current = performance.now()
       const mid = useMultiplayer.getState().myId
@@ -394,6 +426,7 @@ function RoosterController({ phase, alive, myBird, camMode, items }: RoosterCont
       if (groundedRef.current) {
         vyRef.current = JUMP_V
         groundedRef.current = false
+        playSfx('jump')
       }
       touchInput.jumpQueued = false
     }
@@ -535,6 +568,7 @@ function RoosterController({ phase, alive, myBird, camMode, items }: RoosterCont
         if (performance.now() - last > 400) {
           pickupSentAt.current.set(it.id, performance.now())
           sendRoomMessage('pickup', { id: it.id })
+          playSfx('pickup')
         }
       }
     }
@@ -1057,6 +1091,8 @@ function SabongHUD({
       {/* Room invite chip — shows the code and copies a shareable link. */}
       <RoomInviteChip />
 
+      <MuteChip />
+
       {/* Hint when the player is alone in the room — make it obvious how to invite. */}
       {view.phase === 'waiting' && !opponent && <WaitingForOpponentBanner />}
 
@@ -1086,6 +1122,7 @@ function SabongHUDStyles() {
         .sabong-vs { font-size: 20px !important; }
 
         .sabong-invite-chip { top: 62px !important; right: 8px !important; padding: 4px 8px !important; gap: 6px !important; }
+        .sabong-mute-chip { top: 8px !important; right: 8px !important; padding: 4px 8px !important; font-size: 12px !important; }
         .sabong-invite-chip code { font-size: 11px !important; letter-spacing: 1px !important; }
         .sabong-invite-btn { padding: 3px 6px !important; font-size: 10px !important; }
 
@@ -1314,6 +1351,35 @@ const crosshair: React.CSSProperties = {
   position: 'fixed', top: '50%', left: '50%', width: 6, height: 6,
   marginLeft: -3, marginTop: -3, background: '#fef3c7', borderRadius: '50%',
   pointerEvents: 'none', zIndex: 35, opacity: 0.7,
+}
+
+// Sound on/off chip — wired to the shared sfx module. Lives near the cam chip
+// on desktop and folds in with the other top-right chips on mobile.
+export function MuteChip() {
+  const [, force] = useState(0)
+  useEffect(() => {
+    const unsub = subscribeAudio(() => force((n) => (n + 1) & 0xffff))
+    return () => { unsub() }
+  }, [])
+  const muted = isMuted()
+  return (
+    <button
+      onClick={(e) => { e.stopPropagation(); toggleMuted() }}
+      className="sabong-mute-chip"
+      style={muteChip}
+      title={muted ? 'Unmute audio' : 'Mute audio'}
+    >
+      {muted ? '🔇' : '🔊'}
+    </button>
+  )
+}
+
+const muteChip: React.CSSProperties = {
+  position: 'fixed', top: 16, right: 96, zIndex: 46,
+  background: 'rgba(12,12,12,0.85)', color: '#fef3c7',
+  border: '2px solid rgba(255,255,255,0.25)', padding: '6px 10px',
+  fontFamily: '"JetBrains Mono", monospace', fontSize: 14,
+  cursor: 'pointer',
 }
 
 // Mobile-only overlay: virtual joystick (bottom-left), drag-to-look surface

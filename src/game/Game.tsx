@@ -10,12 +10,14 @@ import { Player } from './Player'
 import { Projectiles } from './Projectiles'
 import { RemotePlayers } from './RemotePlayer'
 import { MultiplayerHUD } from './MultiplayerHUD'
+import { MuteChip } from './SabongGame'
 import { registerRemoteThrowHandler } from './net'
 import type { ThrowSpec } from './Projectiles'
 import { useGame, KIND_INFO, KIND_ORDER } from './store'
 import type { ProjectileKind } from './store'
 import { TIME_PACKS, formatTime } from './pricing'
 import { preloadAll } from './audio'
+import { playMusic, stopMusic, playSfx } from './sfx'
 import { CameraEffects } from './CameraEffects'
 import { Trajectory } from './Trajectory'
 import { WorldSplats, useWorldSplats } from './WorldSplats'
@@ -126,6 +128,41 @@ export function Game() {
   useEffect(() => {
     preloadAll()
     installGlobalErrorSuppressor()
+    // Background music for the rage room. Browsers may block the first
+    // autoplay attempt; the next user gesture (any click) will succeed.
+    playMusic('rage')
+    return () => stopMusic()
+  }, [])
+
+  // Session-state sound cues. Subscribe to the zustand store so we don't have
+  // to re-render this component to fire-and-forget audio.
+  useEffect(() => {
+    let prevActive = useGame.getState().sessionActive
+    let prevCombo = useGame.getState().combo
+    let prevRage = useGame.getState().ragePct
+    let rageMaxedAt = 0
+    const unsub = useGame.subscribe((s) => {
+      if (s.sessionActive !== prevActive) {
+        if (s.sessionActive) playSfx('sessionStart')
+        else playSfx('sessionEnd')
+        prevActive = s.sessionActive
+      }
+      // Combo milestones — only fire on the threshold crossings, not every hit.
+      const milestones = [3, 6, 12, 20, 35, 50]
+      if (s.combo > prevCombo) {
+        for (const m of milestones) {
+          if (prevCombo < m && s.combo >= m) { playSfx('comboUp'); break }
+        }
+      }
+      prevCombo = s.combo
+      // Rage maxed — debounce so we only play once per refill.
+      if (s.ragePct >= 0.99 && prevRage < 0.99 && performance.now() - rageMaxedAt > 4000) {
+        playSfx('rageMax')
+        rageMaxedAt = performance.now()
+      }
+      prevRage = s.ragePct
+    })
+    return () => unsub()
   }, [])
 
   // Time pool ticker — decrement timeRemainingMs while pointer-locked and playing
@@ -363,6 +400,7 @@ export function Game() {
       </Canvas>
 
       <ErrorBoundary label="MultiplayerHUD"><MultiplayerHUD /></ErrorBoundary>
+      <MuteChip />
 
       <div className="hud">
         <ErrorBoundary label="SessionTimer"><SessionTimer /></ErrorBoundary>
