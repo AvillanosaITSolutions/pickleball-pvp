@@ -18,7 +18,6 @@ import { getRoom, sendRoomMessage, leaveRoom } from './net'
 
 const ROOSTER_EYE = 1.1
 const ROOSTER_SPEED = 4.5
-const PECK_RANGE_VIS = 1.6
 
 interface BirdView {
   id: string

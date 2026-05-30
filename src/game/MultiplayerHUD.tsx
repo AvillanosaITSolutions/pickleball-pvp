@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useMultiplayer } from './multiplayer'
-import { createRoom, joinRoom, getSocket } from './net'
+import { createRoom, joinRoom } from './net'
 
 export function MultiplayerHUD() {
   const code = useMultiplayer((s) => s.code)
@@ -17,7 +17,6 @@ export function MultiplayerHUD() {
     const url = new URL(window.location.href)
     const r = url.searchParams.get('room')?.toUpperCase()
     if (r && r.length === 6 && !code) {
-      getSocket()
       joinRoom(r, myName).then((res) => {
         if (!res.ok) setErr(res.error ?? 'join failed')
       })
