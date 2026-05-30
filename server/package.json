@@ -1,0 +1,27 @@
+{
+  "name": "rageroom-server",
+  "version": "0.1.0",
+  "private": true,
+  "type": "commonjs",
+  "main": "build/index.js",
+  "scripts": {
+    "start": "node build/index.js",
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc"
+  },
+  "dependencies": {
+    "@colyseus/core": "^0.16.0",
+    "@colyseus/monitor": "^0.16.0",
+    "@colyseus/schema": "^3.0.0",
+    "@colyseus/tools": "^0.16.0",
+    "@colyseus/ws-transport": "^0.16.0",
+    "colyseus": "^0.16.0",
+    "express": "^4.21.0"
+  },
+  "devDependencies": {
+    "@types/express": "^4.17.21",
+    "@types/node": "^22.7.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.0"
+  }
+}

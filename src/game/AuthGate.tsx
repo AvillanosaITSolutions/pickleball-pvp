@@ -1,6 +1,8 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { useAuth0 } from '@auth0/auth0-react'
 import { bindGetAccessToken } from './auth'
+import { checkInStreak } from './streak'
+import { useGame } from './store'
 
 interface Props {
   children: React.ReactNode
@@ -27,6 +29,19 @@ export function AuthGate({ children }: Props) {
       }
     })
   }, [isAuthenticated, getAccessTokenSilently])
+
+  // Daily streak check-in: grants bonus free time and shows a fly-in toast.
+  const [streakToast, setStreakToast] = useState<{ streak: number; bonusMs: number } | null>(null)
+  useEffect(() => {
+    if (!isAuthenticated) return
+    const res = checkInStreak()
+    if (res.isNewDay && res.bonusMs > 0) {
+      useGame.getState().addTime(res.bonusMs)
+      setStreakToast({ streak: res.streak, bonusMs: res.bonusMs })
+      const t = setTimeout(() => setStreakToast(null), 5000)
+      return () => clearTimeout(t)
+    }
+  }, [isAuthenticated])
 
   // Provision the DB user row on first authenticated load.
   useEffect(() => {
@@ -96,8 +111,29 @@ export function AuthGate({ children }: Props) {
           Sign out
         </button>
       </div>
+      {streakToast && <StreakToast streak={streakToast.streak} bonusMs={streakToast.bonusMs} />}
       {children}
     </>
+  )
+}
+
+function StreakToast({ streak, bonusMs }: { streak: number; bonusMs: number }) {
+  const seconds = Math.round(bonusMs / 1000)
+  return (
+    <div
+      style={{
+        position: 'fixed', top: 16, left: '50%', zIndex: 70,
+        transform: 'translateX(-50%) rotate(-1.5deg)',
+        background: '#facc15', color: '#0c0c0c',
+        border: '3px solid #0c0c0c', boxShadow: '4px 4px 0 #0c0c0c',
+        padding: '10px 16px', fontFamily: '"Anton", "Archivo Black", Impact, sans-serif',
+        letterSpacing: 1, textTransform: 'uppercase', fontSize: 18,
+        animation: 'streakIn 0.4s cubic-bezier(.34,1.56,.64,1)',
+      }}
+    >
+      <style>{`@keyframes streakIn { from { transform: translateX(-50%) translateY(-40px) rotate(-6deg); opacity: 0 } to { transform: translateX(-50%) rotate(-1.5deg); opacity: 1 } }`}</style>
+      🔥 Day {streak} streak · +{seconds}s
+    </div>
   )
 }
 
@@ -214,7 +250,7 @@ function LandingPage({ onLogin, onSignup }: { onLogin: () => void; onSignup: () 
               ['--r' as any]: '8deg',
             }}
           >
-            5 min<br />FREE.<br />
+            3 min<br />FREE.<br />
             <span style={{ fontSize: 11, fontFamily: '"JetBrains Mono", monospace' }}>no card.</span>
           </div>
         </div>
@@ -295,7 +331,7 @@ function LandingPage({ onLogin, onSignup }: { onLogin: () => void; onSignup: () 
           <SectionTitle>HOW IT WORKS</SectionTitle>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 22 }}>
             <Rule n="01" head="LOG IN" body="Google, Facebook, or email. No phone number, no SMS code, no ID upload." />
-            <Rule n="02" head="GET 5 MIN" body="The timer starts ticking the moment your mouse locks in the room." />
+            <Rule n="02" head="GET 3 MIN" body="The timer starts ticking the moment your mouse locks in the room. Log in daily for bonus seconds." />
             <Rule n="03" head="TOP UP" body="From ₱30. PayMongo handles cards, GCash, Maya, GrabPay." />
           </div>
         </div>

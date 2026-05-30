@@ -1,123 +1,173 @@
-import { io, Socket } from 'socket.io-client'
+import { Client, Room } from 'colyseus.js'
 import { useMultiplayer, type RemotePlayer } from './multiplayer'
 import { useGame } from './store'
 import { useWorldSplats } from './WorldSplats'
 import type { ThrowSpec } from './Projectiles'
 
-let socket: Socket | null = null
+// Colyseus replaces the old socket.io transport. The public surface (createRoom,
+// joinRoom, emitPose, emitThrow, emitWorldSplat, emitPhoto, registerRemoteThrowHandler)
+// is preserved so call sites in Game/Player/MultiplayerHUD don't churn.
 
-// Game.tsx registers a callback so incoming projectile throws get pushed into
-// the local Projectiles queue with locally-unique ids.
+// Default mode for legacy code paths; new code passes mode explicitly.
+const DEFAULT_MODE = 'rage'
+
+let client: Client | null = null
+let room: Room | null = null
+let joining: Promise<Room> | null = null
+
 type RemoteThrowHandler = (spec: ThrowSpec) => void
 let remoteThrowHandler: RemoteThrowHandler | null = null
 export function registerRemoteThrowHandler(h: RemoteThrowHandler | null) {
   remoteThrowHandler = h
 }
 
-function apiOrigin(): string {
-  const explicit = (import.meta as any).env?.VITE_API_BASE_URL as string | undefined
+function endpoint(): string {
+  const explicit = (import.meta as any).env?.VITE_COLYSEUS_URL as string | undefined
   if (explicit) return explicit
-  // Same origin fallback
-  return ''
+  if (typeof window !== 'undefined') {
+    const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+    return `${proto}//${window.location.hostname}:2567`
+  }
+  return 'ws://localhost:2567'
 }
 
-export function getSocket(): Socket {
-  if (socket) return socket
-  socket = io(apiOrigin(), {
-    transports: ['websocket', 'polling'],
-    autoConnect: true,
-  })
-
-  socket.on('connect', () => {
-    if (socket?.id) useMultiplayer.setState({ myId: socket.id })
-  })
-
-  socket.on('roster', (payload: { code: string; players: RemotePlayer[]; photoUrl: string | null }) => {
-    const me = useMultiplayer.getState().myId
-    const others = payload.players.filter((p) => p.id !== me)
-    useMultiplayer.setState({
-      code: payload.code,
-      players: others,
-    })
-    if (payload.photoUrl && payload.photoUrl !== useGame.getState().dummyPhotoUrl) {
-      useMultiplayer.setState({ suppressBroadcast: true })
-      useGame.getState().setDummyPhotoUrl(payload.photoUrl)
-      useGame.getState().setPhotoUrl(payload.photoUrl)
-      useMultiplayer.setState({ suppressBroadcast: false })
-    }
-  })
-
-  socket.on('pose', (p: { id: string; x: number; y: number; z: number; ry: number; kind?: string }) => {
-    useMultiplayer.getState().updatePose(p)
-  })
-
-  socket.on('throw', (p: { from: string; spec: ThrowSpec }) => {
-    if (p.from === useMultiplayer.getState().myId) return
-    if (!remoteThrowHandler) return
-    // Reassign id locally so we don't collide with the originator's stream
-    remoteThrowHandler({ ...p.spec, id: nextRemoteThrowId-- })
-  })
-
-  socket.on('worldSplat', (p: { from: string; splat: any }) => {
-    if (p.from === useMultiplayer.getState().myId) return
-    suppressNextWorldSplatBroadcast = true
-    useWorldSplats.getState().add(p.splat)
-    suppressNextWorldSplatBroadcast = false
-  })
-
-  socket.on('photo', (p: { url: string | null; from: string }) => {
-    if (p.from === useMultiplayer.getState().myId) return
-    useMultiplayer.setState({ suppressBroadcast: true })
-    useGame.getState().setDummyPhotoUrl(p.url)
-    useGame.getState().setPhotoUrl(p.url)
-    useMultiplayer.setState({ suppressBroadcast: false })
-  })
-
-  return socket
-}
-
-export function createRoom(name: string): Promise<{ ok: boolean; code?: string; error?: string }> {
-  return new Promise((resolve) => {
-    getSocket().emit('createRoom', { name }, (resp: any) => {
-      if (resp?.ok) {
-        useMultiplayer.setState({ myId: resp.you, code: resp.room.code })
-        resolve({ ok: true, code: resp.room.code })
-      } else resolve({ ok: false, error: resp?.error ?? 'failed' })
-    })
-  })
-}
-
-export function joinRoom(code: string, name: string): Promise<{ ok: boolean; error?: string }> {
-  return new Promise((resolve) => {
-    getSocket().emit('joinRoom', { code, name }, (resp: any) => {
-      if (resp?.ok) {
-        useMultiplayer.setState({ myId: resp.you, code: resp.room.code })
-        resolve({ ok: true })
-      } else resolve({ ok: false, error: resp?.error ?? 'failed' })
-    })
-  })
-}
-
-export function emitPose(x: number, y: number, z: number, ry: number, kind?: string) {
-  if (!socket || !useMultiplayer.getState().code) return
-  socket.emit('pose', { x, y, z, ry, kind })
-}
-
-export function emitThrow(spec: ThrowSpec) {
-  if (!socket || !useMultiplayer.getState().code) return
-  socket.emit('throw', spec)
+function getClient(): Client {
+  if (!client) client = new Client(endpoint())
+  return client
 }
 
 let suppressNextWorldSplatBroadcast = false
 let nextRemoteThrowId = -1
+
+function bindRoom(r: Room) {
+  room = r
+  useMultiplayer.setState({ myId: r.sessionId, code: r.roomId, players: [] })
+
+  // Mirror Colyseus MapSchema -> the existing zustand player list.
+  const syncPlayers = () => {
+    const me = r.sessionId
+    const list: RemotePlayer[] = []
+    const map: any = (r.state as any)?.players
+    if (map && typeof map.forEach === 'function') {
+      map.forEach((p: any, id: string) => {
+        if (id === me) return
+        list.push({ id, name: p.name, x: p.x, y: p.y, z: p.z, ry: p.ry, kind: p.kind || null })
+      })
+    }
+    useMultiplayer.setState({ players: list })
+  }
+
+  r.onStateChange(syncPlayers)
+
+  const playersMap: any = (r.state as any)?.players
+  if (playersMap?.onAdd) playersMap.onAdd(syncPlayers)
+  if (playersMap?.onRemove) playersMap.onRemove(syncPlayers)
+  if (playersMap?.onChange) playersMap.onChange(syncPlayers)
+
+  r.onMessage('throw', (p: { from: string; spec: ThrowSpec }) => {
+    if (p.from === r.sessionId) return
+    if (!remoteThrowHandler) return
+    remoteThrowHandler({ ...p.spec, id: nextRemoteThrowId-- })
+  })
+
+  // Photo URL lives in shared state — mirror onto the local game store.
+  const splatsArr: any = (r.state as any)?.splats
+  if (splatsArr?.onAdd) {
+    splatsArr.onAdd((splat: any) => {
+      suppressNextWorldSplatBroadcast = true
+      useWorldSplats.getState().add({ ...splat })
+      suppressNextWorldSplatBroadcast = false
+    })
+  }
+
+  ;(r.state as any)?.listen?.('photoUrl', (url: string) => {
+    const next = url || null
+    if (next && next !== useGame.getState().dummyPhotoUrl) {
+      useMultiplayer.setState({ suppressBroadcast: true })
+      useGame.getState().setDummyPhotoUrl(next)
+      useGame.getState().setPhotoUrl(next)
+      useMultiplayer.setState({ suppressBroadcast: false })
+    }
+  })
+
+  r.onLeave(() => {
+    if (room === r) {
+      room = null
+      useMultiplayer.setState({ code: null, players: [], myId: null })
+    }
+  })
+}
+
+export async function createRoom(name: string, mode: string = DEFAULT_MODE): Promise<{ ok: boolean; code?: string; error?: string }> {
+  try {
+    const r = await getClient().create(mode, { name, mode })
+    useMultiplayer.setState({ mode })
+    bindRoom(r)
+    return { ok: true, code: r.roomId }
+  } catch (e: any) {
+    return { ok: false, error: e?.message ?? 'failed' }
+  }
+}
+
+export async function joinRoom(code: string, name: string, mode: string = DEFAULT_MODE): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const r = await getClient().joinById(code, { name, mode })
+    useMultiplayer.setState({ mode })
+    bindRoom(r)
+    return { ok: true }
+  } catch (e: any) {
+    return { ok: false, error: e?.message ?? 'failed' }
+  }
+}
+
+export async function quickplay(name: string, mode: string = DEFAULT_MODE): Promise<{ ok: boolean; code?: string; error?: string }> {
+  if (joining) {
+    try { const r = await joining; return { ok: true, code: r.roomId } } catch {}
+  }
+  try {
+    joining = getClient().joinOrCreate(mode, { name, mode })
+    const r = await joining
+    useMultiplayer.setState({ mode })
+    bindRoom(r)
+    return { ok: true, code: r.roomId }
+  } catch (e: any) {
+    return { ok: false, error: e?.message ?? 'failed' }
+  } finally {
+    joining = null
+  }
+}
+
+// Generic helpers for new modes (sabong, etc) — bypasses the rage-specific emit fns.
+export function sendRoomMessage(type: string, payload?: any) {
+  if (!room) return
+  room.send(type, payload)
+}
+export function getRoom(): Room | null { return room }
+
+export function leaveRoom() {
+  room?.leave()
+  room = null
+  useMultiplayer.setState({ code: null, players: [], myId: null })
+}
+
+export function emitPose(x: number, y: number, z: number, ry: number, kind?: string) {
+  if (!room) return
+  room.send('pose', { x, y, z, ry, kind })
+}
+
+export function emitThrow(spec: ThrowSpec) {
+  if (!room) return
+  room.send('throw', spec)
+}
+
 export function emitWorldSplat(splat: any) {
   if (suppressNextWorldSplatBroadcast) return
-  if (!socket || !useMultiplayer.getState().code) return
-  socket.emit('worldSplat', splat)
+  if (!room) return
+  room.send('worldSplat', splat)
 }
 
 export function emitPhoto(url: string | null) {
-  if (!socket || !useMultiplayer.getState().code) return
+  if (!room) return
   if (useMultiplayer.getState().suppressBroadcast) return
-  socket.emit('photo', { url })
+  room.send('photo', { url })
 }

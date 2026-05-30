@@ -27,6 +27,15 @@ services:
     ports:
       - "4000:4000"
 
+  colyseus:
+    build: ./server
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: "2567"
+    ports:
+      - "2567:2567"
+
   # Optional: front-end served by nginx (built separately)
   # web:
   #   build: .

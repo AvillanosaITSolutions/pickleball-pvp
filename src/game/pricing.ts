@@ -37,4 +37,8 @@ export function formatTime(ms: number): string {
   return `${sec}s`
 }
 
-export const FREE_TRIAL_MS = 5 * 60_000 // 5 minutes free on first visit
+export const FREE_TRIAL_MS = 3 * 60_000 // 3 minutes free on first visit
+
+// Daily login streak grants bonus free time, capped per day. Encourages return visits.
+export const STREAK_BONUS_MS = 30_000
+export const STREAK_BONUS_CAP_DAYS = 14

@@ -50,6 +50,19 @@ jobs:
           cache-from: type=gha,scope=api
           cache-to: type=gha,scope=api,mode=max
 
+      # ---------- COLYSEUS ----------
+      - name: Build & push colyseus
+        uses: docker/build-push-action@v6
+        with:
+          context: ./server
+          file: ./server/Dockerfile
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ steps.meta.outputs.image_base }}/colyseus:${{ steps.meta.outputs.tag }}
+            ${{ env.REGISTRY }}/${{ steps.meta.outputs.image_base }}/colyseus:latest
+          cache-from: type=gha,scope=colyseus
+          cache-to: type=gha,scope=colyseus,mode=max
+
       # ---------- WEB ----------
       - name: Build & push web
         uses: docker/build-push-action@v6
@@ -59,6 +72,7 @@ jobs:
           push: true
           build-args: |
             VITE_API_BASE_URL=https://api-rageroom.88-222-245-88.nip.io
+            VITE_COLYSEUS_URL=wss://mp-rageroom.88-222-245-88.nip.io
             VITE_AUTH0_DOMAIN=${{ secrets.VITE_AUTH0_DOMAIN }}
             VITE_AUTH0_CLIENT_ID=${{ secrets.VITE_AUTH0_CLIENT_ID }}
             VITE_AUTH0_AUDIENCE=${{ secrets.VITE_AUTH0_AUDIENCE }}

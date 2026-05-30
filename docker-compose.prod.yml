@@ -44,6 +44,25 @@ services:
       - "traefik.http.routers.rageroom-api.tls.certresolver=letsencrypt"
       - "traefik.http.services.rageroom-api.loadbalancer.server.port=3001"
 
+  # ============== Colyseus (multiplayer WS) ==============
+  colyseus:
+    image: ${GHCR_REPO}/colyseus:${IMAGE_TAG:-latest}
+    container_name: rageroom-colyseus
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: 2567
+    networks:
+      - visa-reminder_default
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=visa-reminder_default"
+      - "traefik.http.routers.rageroom-mp.rule=Host(`mp-rageroom.88-222-245-88.nip.io`)"
+      - "traefik.http.routers.rageroom-mp.entrypoints=websecure"
+      - "traefik.http.routers.rageroom-mp.tls=true"
+      - "traefik.http.routers.rageroom-mp.tls.certresolver=letsencrypt"
+      - "traefik.http.services.rageroom-mp.loadbalancer.server.port=2567"
+
   # ============== Web (Nginx + Vite build) ==============
   web:
     image: ${GHCR_REPO}/web:${IMAGE_TAG:-latest}

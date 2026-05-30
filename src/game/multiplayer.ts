@@ -14,9 +14,11 @@ interface MPState {
   code: string | null
   myId: string | null
   myName: string
+  mode: string  // 'rage' | 'sabong' — drives App routing
   players: RemotePlayer[]
   suppressBroadcast: boolean
   setName: (n: string) => void
+  setMode: (m: string) => void
   updatePose: (p: { id: string; x: number; y: number; z: number; ry: number; kind?: string }) => void
 }
 
@@ -28,12 +30,14 @@ export const useMultiplayer = create<MPState>((set) => ({
   code: null,
   myId: null,
   myName: storedName || `Player${Math.floor(Math.random() * 1000)}`,
+  mode: 'rage',
   players: [],
   suppressBroadcast: false,
   setName: (n) => {
     try { localStorage.setItem('mpName', n) } catch {}
     set({ myName: n })
   },
+  setMode: (m) => set({ mode: m }),
   updatePose: (p) =>
     set((s) => {
       const i = s.players.findIndex((q) => q.id === p.id)
