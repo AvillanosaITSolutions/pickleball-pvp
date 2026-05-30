@@ -40,7 +40,7 @@ export class PaymongoService {
               quantity: 1,
             },
           ],
-          payment_method_types: ['card', 'gcash', 'paymaya', 'grab_pay'],
+          payment_method_types: ['card', 'gcash', 'paymaya', 'grab_pay', 'qrph'],
           success_url: process.env.PAYMONGO_SUCCESS_URL,
           cancel_url: process.env.PAYMONGO_CANCEL_URL,
           description: `Wall of Anger — ${pack.label} pack`,
