@@ -12,7 +12,7 @@ function App() {
   return (
     <AuthGate>
       {inGame
-        ? (mode === 'sabong' ? <SabongGame /> : <Game />)
+        ? (mode === 'sabong' ? <SabongGame onExit={() => setInGame(false)} /> : <Game />)
         : <Lobby onEnter={() => setInGame(true)} />}
     </AuthGate>
   )

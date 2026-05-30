@@ -5,7 +5,7 @@ import * as THREE from 'three'
 // Cockfighting ring: circular sand pit, low wooden fence around the perimeter,
 // dark crowd-silhouette backdrop. Self-contained — does not reuse the rage room.
 
-export const ARENA_RADIUS = 8
+export const ARENA_RADIUS = 10
 const FENCE_HEIGHT = 0.7
 const POST_COUNT = 24
 
