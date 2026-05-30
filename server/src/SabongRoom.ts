@@ -26,10 +26,10 @@ const SPAWNS: Array<{ x: number; z: number; ry: number; color: string }> = [
   { x:  3, z: 0,  ry: -Math.PI / 2, color: "#2563eb" },
 ];
 
-const PECK_COOLDOWN_MS = 600;
-const PECK_RANGE = 1.6;
-const PECK_HALF_CONE_RAD = Math.PI / 3; // 60° each side -> 120° cone
-const PECK_DAMAGE = 12;
+const PECK_COOLDOWN_MS = 450;
+const PECK_RANGE = 2.0;
+const PECK_HALF_CONE_RAD = Math.PI / 2.5; // ~72° each side -> ~144° cone, generous
+const PECK_DAMAGE = 15;
 
 export class SabongRoom extends Room<SabongState> {
   maxClients = 2;
