@@ -60,11 +60,25 @@ function readRoomState(): RoomView {
 export const peckStartTimes = new Map<string, number>()
 export const PECK_ANIM_MS = 280
 
+export type CameraMode = 'first' | 'third'
+
 export function SabongGame() {
   const [view, setView] = useState<RoomView>(() => readRoomState())
   const myId = useMultiplayer((s) => s.myId)
   const [peckFlash, setPeckFlash] = useState(0)
   const [hitFlash, setHitFlash] = useState(0)
+  // Camera mode — default third so you can watch your own bird peck.
+  const [camMode, setCamMode] = useState<CameraMode>(() => {
+    try { return (localStorage.getItem('sabongCam') as CameraMode) || 'third' } catch { return 'third' }
+  })
+  useEffect(() => { try { localStorage.setItem('sabongCam', camMode) } catch {} }, [camMode])
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key.toLowerCase() === 'v') setCamMode((m) => m === 'first' ? 'third' : 'first')
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
 
   // Subscribe to room state changes. Colyseus 0.16 emits onStateChange.
   useEffect(() => {
@@ -112,7 +126,7 @@ export function SabongGame() {
         <Physics gravity={[0, -9.81, 0]}>
           <ErrorBoundary label="SabongArena"><SabongArena /></ErrorBoundary>
           <ErrorBoundary label="RoosterControls">
-            <RoosterController phase={view.phase} alive={me?.alive ?? true} />
+            <RoosterController phase={view.phase} alive={me?.alive ?? true} myBird={me} camMode={camMode} />
           </ErrorBoundary>
           <ErrorBoundary label="RemoteRoosters" recoverable>
             <RemoteRoosters birds={view.birds.filter((b) => b.id !== myId)} />
@@ -120,12 +134,22 @@ export function SabongGame() {
         </Physics>
       </Canvas>
 
-      <SabongHUD view={view} me={me} opponent={opponent} peckFlash={peckFlash} hitFlash={hitFlash} myId={myId} />
+      <SabongHUD view={view} me={me} opponent={opponent} peckFlash={peckFlash} hitFlash={hitFlash} myId={myId} camMode={camMode} onToggleCam={() => setCamMode((m) => m === 'first' ? 'third' : 'first')} />
     </>
   )
 }
 
-function RoosterController({ phase, alive }: { phase: string; alive: boolean }) {
+interface RoosterControllerProps {
+  phase: string
+  alive: boolean
+  myBird?: BirdView
+  camMode: CameraMode
+}
+
+const THIRD_PERSON_BACK = 4
+const THIRD_PERSON_UP = 1.5
+
+function RoosterController({ phase, alive, myBird, camMode }: RoosterControllerProps) {
   const { camera } = useThree()
   const posRef = useRef(new THREE.Vector3(0, ROOSTER_EYE, 0))
   const vyRef = useRef(0)
@@ -133,6 +157,16 @@ function RoosterController({ phase, alive }: { phase: string; alive: boolean }) 
   const lastPoseEmitRef = useRef(0)
   const initialized = useRef(false)
   const myId = useMultiplayer.getState().myId
+
+  // Refs for the local bird's visual model (only rendered in third-person).
+  const localGroupRef = useRef<THREE.Group>(null)
+  const localBodyRef = useRef<THREE.Group>(null)
+  const localHeadRef = useRef<THREE.Group>(null)
+  const localLeftWingRef = useRef<THREE.Group>(null)
+  const localRightWingRef = useRef<THREE.Group>(null)
+  const localLeftLegRef = useRef<THREE.Group>(null)
+  const localRightLegRef = useRef<THREE.Group>(null)
+  const lastLocalPosRef = useRef(new THREE.Vector3())
 
   // Spawn at the position the server gave us for our bird.
   useEffect(() => {
@@ -237,10 +271,69 @@ function RoosterController({ phase, alive }: { phase: string; alive: boolean }) 
         lungeDown = eased * 0.08
       }
     }
-    camera.position.copy(posRef.current)
-    if (lungeForward > 0) {
-      camera.position.addScaledVector(forward, lungeForward)
-      camera.position.y -= lungeDown
+    // True yaw extracted from the forward vector (works regardless of pitch).
+    // camera.rotation.y is unreliable when PointerLockControls has pitched the
+    // camera up/down — it's a YXZ Euler internally, read as XYZ by three.js.
+    const yaw = Math.atan2(-forward.x, -forward.z)
+
+    if (camMode === 'first') {
+      camera.position.copy(posRef.current)
+      if (lungeForward > 0) {
+        camera.position.addScaledVector(forward, lungeForward)
+        camera.position.y -= lungeDown
+      }
+    } else {
+      // Third-person: park camera behind the bird along the current yaw, raised.
+      // The peck lunge zooms the camera *toward* the bird, which reads as a punch-in.
+      camera.position.set(
+        posRef.current.x - forward.x * THIRD_PERSON_BACK + forward.x * lungeForward,
+        posRef.current.y + THIRD_PERSON_UP - lungeDown,
+        posRef.current.z - forward.z * THIRD_PERSON_BACK + forward.z * lungeForward,
+      )
+    }
+
+    // Drive the local bird's visual (third-person only)
+    if (localGroupRef.current) {
+      const visible = camMode === 'third' && alive
+      localGroupRef.current.visible = visible
+      if (visible) {
+        const lift = Math.max(0, posRef.current.y - GROUND_Y)
+        localGroupRef.current.position.set(posRef.current.x, lift, posRef.current.z)
+        localGroupRef.current.rotation.y = yaw
+        const horizDelta = Math.hypot(
+          posRef.current.x - lastLocalPosRef.current.x,
+          posRef.current.z - lastLocalPosRef.current.z,
+        )
+        lastLocalPosRef.current.copy(posRef.current)
+        // Peck animation (head + body) — strike value reused for the same easing.
+        const start = peckStartTimes.get(myId ?? '') ?? 0
+        const peckElapsed = performance.now() - start
+        let strike = 0
+        if (start > 0 && peckElapsed >= 0 && peckElapsed < PECK_ANIM_MS) {
+          const t = peckElapsed / PECK_ANIM_MS
+          strike = t < 0.4
+            ? 1 - Math.pow(1 - t / 0.4, 3)
+            : 1 - Math.pow((t - 0.4) / 0.6, 2)
+        }
+        if (localHeadRef.current) {
+          localHeadRef.current.position.z = -0.35 - strike * 0.5
+          localHeadRef.current.position.y = 1.65 - strike * 0.22
+          localHeadRef.current.rotation.x = strike * 0.9
+        }
+        if (localBodyRef.current) localBodyRef.current.rotation.x = strike * 0.18
+        // Walk cycle + wing flap (same params as remote birds for consistency)
+        const walking = horizDelta > 0.01
+        const tt = performance.now() / 1000
+        const swing = walking ? Math.sin(tt * 12) * 0.5 : 0
+        if (localLeftLegRef.current)  localLeftLegRef.current.rotation.x  = swing
+        if (localRightLegRef.current) localRightLegRef.current.rotation.x = -swing
+        const airborne = lift > 0.05
+        const flapAmp = airborne ? 1.0 : walking ? 0.35 : 0.08
+        const flapSpeed = airborne ? 22 : 8
+        const flap = Math.sin(tt * flapSpeed) * flapAmp
+        if (localLeftWingRef.current)  localLeftWingRef.current.rotation.z  = -0.25 - flap
+        if (localRightWingRef.current) localRightWingRef.current.rotation.z =  0.25 + flap
+      }
     }
 
     // Throttle pose emit ~20Hz
@@ -251,12 +344,30 @@ function RoosterController({ phase, alive }: { phase: string; alive: boolean }) 
         x: posRef.current.x,
         y: posRef.current.y,
         z: posRef.current.z,
-        ry: camera.rotation.y,
+        ry: yaw,
       })
     }
   })
 
-  return <PointerLockControls />
+  return (
+    <>
+      <PointerLockControls />
+      {myBird && (
+        <RoosterModel
+          color={myBird.color}
+          name={myBird.name}
+          hp={myBird.hp}
+          groupRef={localGroupRef}
+          bodyRef={localBodyRef}
+          headRef={localHeadRef}
+          leftWingRef={localLeftWingRef}
+          rightWingRef={localRightWingRef}
+          leftLegRef={localLeftLegRef}
+          rightLegRef={localRightLegRef}
+        />
+      )}
+    </>
+  )
 }
 
 function RemoteRoosters({ birds }: { birds: BirdView[] }) {
@@ -264,6 +375,115 @@ function RemoteRoosters({ birds }: { birds: BirdView[] }) {
     <>
       {birds.map((b) => <Rooster key={b.id} bird={b} />)}
     </>
+  )
+}
+
+interface RoosterModelProps {
+  color: string
+  name: string
+  hp: number
+  groupRef: React.RefObject<THREE.Group | null>
+  bodyRef: React.RefObject<THREE.Group | null>
+  headRef: React.RefObject<THREE.Group | null>
+  leftWingRef: React.RefObject<THREE.Group | null>
+  rightWingRef: React.RefObject<THREE.Group | null>
+  leftLegRef: React.RefObject<THREE.Group | null>
+  rightLegRef: React.RefObject<THREE.Group | null>
+}
+
+// Pure visual — animations are driven by whoever owns the refs (remote bird's
+// own useFrame for opponents, the controller for the local bird).
+function RoosterModel({
+  color, name, hp,
+  groupRef, bodyRef, headRef,
+  leftWingRef, rightWingRef, leftLegRef, rightLegRef,
+}: RoosterModelProps) {
+  return (
+    <group ref={groupRef} scale={ROOSTER_SCALE}>
+      <group ref={leftLegRef} position={[0.18, 0.55, 0]}>
+        <mesh castShadow position={[0, -0.27, 0]}>
+          <cylinderGeometry args={[0.06, 0.06, 0.55, 8]} />
+          <meshStandardMaterial color="#fbbf24" />
+        </mesh>
+        <mesh castShadow position={[0, -0.56, -0.06]}>
+          <boxGeometry args={[0.18, 0.06, 0.28]} />
+          <meshStandardMaterial color="#f59e0b" />
+        </mesh>
+      </group>
+      <group ref={rightLegRef} position={[-0.18, 0.55, 0]}>
+        <mesh castShadow position={[0, -0.27, 0]}>
+          <cylinderGeometry args={[0.06, 0.06, 0.55, 8]} />
+          <meshStandardMaterial color="#fbbf24" />
+        </mesh>
+        <mesh castShadow position={[0, -0.56, -0.06]}>
+          <boxGeometry args={[0.18, 0.06, 0.28]} />
+          <meshStandardMaterial color="#f59e0b" />
+        </mesh>
+      </group>
+
+      <group ref={bodyRef}>
+        <mesh castShadow position={[0, 0.95, 0]} scale={[1.1, 1, 1.25]}>
+          <capsuleGeometry args={[0.42, 0.6, 8, 16]} />
+          <meshStandardMaterial color={color} />
+        </mesh>
+        <group position={[0, 1.25, 0.45]} rotation={[0.5, 0, 0]}>
+          <mesh castShadow position={[0, 0.15, 0]}>
+            <boxGeometry args={[0.08, 0.5, 0.05]} />
+            <meshStandardMaterial color={color} />
+          </mesh>
+          <mesh castShadow position={[0.18, 0.1, 0]} rotation={[0, 0, -0.35]}>
+            <boxGeometry args={[0.08, 0.45, 0.05]} />
+            <meshStandardMaterial color={color} />
+          </mesh>
+          <mesh castShadow position={[-0.18, 0.1, 0]} rotation={[0, 0, 0.35]}>
+            <boxGeometry args={[0.08, 0.45, 0.05]} />
+            <meshStandardMaterial color={color} />
+          </mesh>
+        </group>
+      </group>
+
+      <group ref={leftWingRef} position={[0.48, 1.1, 0]}>
+        <mesh castShadow position={[0.22, 0, 0]}>
+          <boxGeometry args={[0.45, 0.5, 0.1]} />
+          <meshStandardMaterial color={color} />
+        </mesh>
+      </group>
+      <group ref={rightWingRef} position={[-0.48, 1.1, 0]}>
+        <mesh castShadow position={[-0.22, 0, 0]}>
+          <boxGeometry args={[0.45, 0.5, 0.1]} />
+          <meshStandardMaterial color={color} />
+        </mesh>
+      </group>
+
+      <group ref={headRef} position={[0, 1.65, -0.35]}>
+        <mesh castShadow>
+          <sphereGeometry args={[0.28, 16, 12]} />
+          <meshStandardMaterial color={color} />
+        </mesh>
+        <mesh castShadow position={[0, 0.32, 0.06]}>
+          <boxGeometry args={[0.06, 0.22, 0.38]} />
+          <meshStandardMaterial color="#b91c1c" />
+        </mesh>
+        <mesh castShadow position={[0, -0.18, -0.18]}>
+          <sphereGeometry args={[0.07, 8, 8]} />
+          <meshStandardMaterial color="#dc2626" />
+        </mesh>
+        <mesh castShadow position={[0, -0.05, -0.28]} rotation={[Math.PI / 2, 0, 0]}>
+          <coneGeometry args={[0.08, 0.22, 8]} />
+          <meshStandardMaterial color="#fbbf24" />
+        </mesh>
+        <mesh position={[0.15, 0.05, -0.16]}>
+          <sphereGeometry args={[0.04, 8, 8]} />
+          <meshStandardMaterial color="#0a0a0a" />
+        </mesh>
+        <mesh position={[-0.15, 0.05, -0.16]}>
+          <sphereGeometry args={[0.04, 8, 8]} />
+          <meshStandardMaterial color="#0a0a0a" />
+        </mesh>
+      </group>
+
+      <NameTag name={name} hp={hp} />
+    </group>
   )
 }
 
@@ -321,101 +541,18 @@ function Rooster({ bird }: { bird: BirdView }) {
     if (rightWingRef.current) rightWingRef.current.rotation.z =  0.25 + flap
   })
   return (
-    <group ref={ref} scale={ROOSTER_SCALE}>
-      {/* Legs (yellow). Pivot at hip so rotation.x swings the whole leg. */}
-      <group ref={leftLegRef} position={[0.18, 0.55, 0]}>
-        <mesh castShadow position={[0, -0.27, 0]}>
-          <cylinderGeometry args={[0.06, 0.06, 0.55, 8]} />
-          <meshStandardMaterial color="#fbbf24" />
-        </mesh>
-        <mesh castShadow position={[0, -0.56, -0.06]}>
-          <boxGeometry args={[0.18, 0.06, 0.28]} />
-          <meshStandardMaterial color="#f59e0b" />
-        </mesh>
-      </group>
-      <group ref={rightLegRef} position={[-0.18, 0.55, 0]}>
-        <mesh castShadow position={[0, -0.27, 0]}>
-          <cylinderGeometry args={[0.06, 0.06, 0.55, 8]} />
-          <meshStandardMaterial color="#fbbf24" />
-        </mesh>
-        <mesh castShadow position={[0, -0.56, -0.06]}>
-          <boxGeometry args={[0.18, 0.06, 0.28]} />
-          <meshStandardMaterial color="#f59e0b" />
-        </mesh>
-      </group>
-
-      <group ref={bodyRef}>
-        {/* Body — bigger, sitting on top of the legs */}
-        <mesh castShadow position={[0, 0.95, 0]} scale={[1.1, 1, 1.25]}>
-          <capsuleGeometry args={[0.42, 0.6, 8, 16]} />
-          <meshStandardMaterial color={bird.color} />
-        </mesh>
-        {/* Tail fan — three angled feathers at the rear */}
-        <group position={[0, 1.25, 0.45]} rotation={[0.5, 0, 0]}>
-          <mesh castShadow position={[0, 0.15, 0]}>
-            <boxGeometry args={[0.08, 0.5, 0.05]} />
-            <meshStandardMaterial color={bird.color} />
-          </mesh>
-          <mesh castShadow position={[0.18, 0.1, 0]} rotation={[0, 0, -0.35]}>
-            <boxGeometry args={[0.08, 0.45, 0.05]} />
-            <meshStandardMaterial color={bird.color} />
-          </mesh>
-          <mesh castShadow position={[-0.18, 0.1, 0]} rotation={[0, 0, 0.35]}>
-            <boxGeometry args={[0.08, 0.45, 0.05]} />
-            <meshStandardMaterial color={bird.color} />
-          </mesh>
-        </group>
-      </group>
-
-      {/* Wings — pivot at the shoulder so rotation.z flaps them up/down. */}
-      <group ref={leftWingRef} position={[0.48, 1.1, 0]}>
-        <mesh castShadow position={[0.22, 0, 0]}>
-          <boxGeometry args={[0.45, 0.5, 0.1]} />
-          <meshStandardMaterial color={bird.color} />
-        </mesh>
-      </group>
-      <group ref={rightWingRef} position={[-0.48, 1.1, 0]}>
-        <mesh castShadow position={[-0.22, 0, 0]}>
-          <boxGeometry args={[0.45, 0.5, 0.1]} />
-          <meshStandardMaterial color={bird.color} />
-        </mesh>
-      </group>
-
-      {/* Head group — moved by peck animation. */}
-      <group ref={headRef} position={[0, 1.65, -0.35]}>
-        <mesh castShadow>
-          <sphereGeometry args={[0.28, 16, 12]} />
-          <meshStandardMaterial color={bird.color} />
-        </mesh>
-        {/* Comb (red) */}
-        <mesh castShadow position={[0, 0.32, 0.06]}>
-          <boxGeometry args={[0.06, 0.22, 0.38]} />
-          <meshStandardMaterial color="#b91c1c" />
-        </mesh>
-        {/* Wattle (red dangle under beak) */}
-        <mesh castShadow position={[0, -0.18, -0.18]}>
-          <sphereGeometry args={[0.07, 8, 8]} />
-          <meshStandardMaterial color="#dc2626" />
-        </mesh>
-        {/* Beak */}
-        <mesh castShadow position={[0, -0.05, -0.28]} rotation={[Math.PI / 2, 0, 0]}>
-          <coneGeometry args={[0.08, 0.22, 8]} />
-          <meshStandardMaterial color="#fbbf24" />
-        </mesh>
-        {/* Eyes */}
-        <mesh position={[0.15, 0.05, -0.16]}>
-          <sphereGeometry args={[0.04, 8, 8]} />
-          <meshStandardMaterial color="#0a0a0a" />
-        </mesh>
-        <mesh position={[-0.15, 0.05, -0.16]}>
-          <sphereGeometry args={[0.04, 8, 8]} />
-          <meshStandardMaterial color="#0a0a0a" />
-        </mesh>
-      </group>
-
-      {/* Name tag */}
-      <NameTag name={bird.name} hp={bird.hp} />
-    </group>
+    <RoosterModel
+      color={bird.color}
+      name={bird.name}
+      hp={bird.hp}
+      groupRef={ref}
+      bodyRef={bodyRef}
+      headRef={headRef}
+      leftWingRef={leftWingRef}
+      rightWingRef={rightWingRef}
+      leftLegRef={leftLegRef}
+      rightLegRef={rightLegRef}
+    />
   )
 }
 
@@ -447,8 +584,12 @@ function NameTag({ name, hp }: { name: string; hp: number }) {
 }
 
 function SabongHUD({
-  view, me, opponent, peckFlash, hitFlash, myId,
-}: { view: RoomView; me?: BirdView; opponent?: BirdView; peckFlash: number; hitFlash: number; myId: string | null }) {
+  view, me, opponent, peckFlash, hitFlash, myId, camMode, onToggleCam,
+}: {
+  view: RoomView; me?: BirdView; opponent?: BirdView
+  peckFlash: number; hitFlash: number; myId: string | null
+  camMode: CameraMode; onToggleCam: () => void
+}) {
   const [, force] = useState(0)
   useEffect(() => {
     const t = setInterval(() => force((n) => n + 1), 100)
@@ -476,7 +617,7 @@ function SabongHUD({
         {view.phase === 'waiting' && 'Waiting for opponent…'}
         {view.phase === 'fighting' && (
           <span style={{ opacity: 0.7 }}>
-            Click to peck · WASD to move · Esc to free cursor
+            Click to peck · WASD to move · Space to jump · V toggles view · Esc to free cursor
           </span>
         )}
         {view.phase === 'over' && (
@@ -486,10 +627,23 @@ function SabongHUD({
         )}
       </div>
 
-      {/* Crosshair */}
-      <div style={crosshair} />
+      {/* Crosshair — first-person only; third-person shows the bird's own head as the aim cue */}
+      {camMode === 'first' && <div style={crosshair} />}
+
+      {/* Camera-mode chip */}
+      <button onClick={onToggleCam} style={camChip}>
+        {camMode === 'third' ? '3rd' : '1st'} · press V
+      </button>
     </>
   )
+}
+
+const camChip: React.CSSProperties = {
+  position: 'fixed', top: 16, right: 16, zIndex: 45,
+  background: 'rgba(12,12,12,0.85)', color: '#fef3c7',
+  border: '2px solid #facc15', padding: '6px 12px',
+  fontFamily: '"JetBrains Mono", monospace', fontSize: 12, letterSpacing: 1,
+  cursor: 'pointer',
 }
 
 function BirdBadge({ bird, accent, label, peckGlow }: { bird?: BirdView; accent: string; label: string; peckGlow: number }) {

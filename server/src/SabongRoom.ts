@@ -21,9 +21,14 @@ export class SabongState extends Schema {
   @type({ map: Bird }) birds = new MapSchema<Bird>();
 }
 
+// Yaw convention matches the client: ry such that a group with rotation.y = ry
+// has its forward axis (-Z in local space) aligned with the desired world
+// direction. yaw = atan2(-forwardX, -forwardZ).
+//   Player1 at (-3,0,0), forward +X  → ry = atan2(-1, 0) = -π/2
+//   Player2 at (+3,0,0), forward -X  → ry = atan2( 1, 0) =  π/2
 const SPAWNS: Array<{ x: number; z: number; ry: number; color: string }> = [
-  { x: -3, z: 0,  ry: Math.PI / 2,  color: "#dc2626" },
-  { x:  3, z: 0,  ry: -Math.PI / 2, color: "#2563eb" },
+  { x: -3, z: 0,  ry: -Math.PI / 2, color: "#dc2626" },
+  { x:  3, z: 0,  ry:  Math.PI / 2, color: "#2563eb" },
 ];
 
 const PECK_COOLDOWN_MS = 450;
@@ -59,10 +64,15 @@ export class SabongRoom extends Room<SabongState> {
         const dz = other.z - me.z;
         const dist = Math.hypot(dx, dz);
         if (dist > PECK_RANGE) return;
-        // facing check: angle from me to other vs my ry (which points along -z when ry=0)
-        const angleTo = Math.atan2(dx, -dz);
+        // Facing check: the angle "ry would need to be" for me to look directly
+        // at `other`. Same convention as the client's yaw extraction:
+        //   yaw = atan2(-forwardX, -forwardZ) — and forward from me to other
+        //   is (dx, dz) normalized, so angleTo = atan2(-dx, -dz).
+        const angleTo = Math.atan2(-dx, -dz);
         let delta = Math.abs(angleTo - me.ry);
-        delta = Math.min(delta, Math.abs(delta - Math.PI * 2));
+        // Wrap to [0, π]
+        delta = delta % (Math.PI * 2);
+        if (delta > Math.PI) delta = Math.PI * 2 - delta;
         if (delta > PECK_HALF_CONE_RAD) return;
         hit = other;
       });
