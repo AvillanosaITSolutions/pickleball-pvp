@@ -337,7 +337,7 @@ export class SabongRoom extends Room<SabongState> {
     while (this.state.rematchReady.length > 0) this.state.rematchReady.pop();
     // Wipe items so the next match starts clean.
     const ids: string[] = [];
-    for (const [, id] of this.state.items) ids.push(id);
+    for (const [id] of this.state.items) ids.push(id);
     for (const id of ids) this.state.items.delete(id);
     this.lastDropAt = Date.now(); // first drop ~DROP_INTERVAL_MS into the match
     for (const b of this.state.birds.values()) {
