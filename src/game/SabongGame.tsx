@@ -1082,6 +1082,13 @@ function RoomInviteChip() {
   if (!code) return null
   const inviteUrl = `${window.location.origin}${window.location.pathname}?room=${code}&mode=${mode}`
   const onCopy = async () => {
+    // On mobile, prefer the native share sheet so users can send via Messages/WhatsApp/etc.
+    if (typeof navigator !== 'undefined' && (navigator as any).share) {
+      try {
+        await (navigator as any).share({ title: 'Join my Sabong room', text: `Join room ${code}`, url: inviteUrl })
+        return
+      } catch { /* user cancelled — fall through to clipboard */ }
+    }
     try { await navigator.clipboard.writeText(inviteUrl); setCopied(true); setTimeout(() => setCopied(false), 1600) } catch { }
   }
   return (

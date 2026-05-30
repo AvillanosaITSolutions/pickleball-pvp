@@ -59,10 +59,11 @@ export function Lobby({ onEnter }: Props) {
     if (inviteMode) setMode(inviteMode)
     const name = myName.trim() || `Player${Math.floor(Math.random() * 1000)}`
     setBusy('join')
-    joinRoom(inviteRoom.toUpperCase(), name, inviteMode || mode).then((res) => {
+    // Colyseus room IDs are case-sensitive — never uppercase them.
+    joinRoom(inviteRoom, name, inviteMode || mode).then((res) => {
       setBusy(null)
       if (res.ok) {
-        writeInviteUrl(inviteRoom.toUpperCase(), inviteMode || mode)
+        writeInviteUrl(inviteRoom, inviteMode || mode)
         onEnter()
       } else {
         setErr(res.error || 'Invite link is no longer valid')
@@ -84,7 +85,7 @@ export function Lobby({ onEnter }: Props) {
     } else if (action === 'create') {
       res = await createRoom(name, mode); resolvedCode = res.code
     } else {
-      const c = joinCode.trim().toUpperCase()
+      const c = joinCode.trim()
       res = await joinRoom(c, name, mode); resolvedCode = c
     }
     setBusy(null)
@@ -143,10 +144,13 @@ export function Lobby({ onEnter }: Props) {
         <div style={joinRow}>
           <input
             value={joinCode}
-            onChange={(e) => setJoinCode(e.target.value.toUpperCase())}
+            onChange={(e) => setJoinCode(e.target.value)}
             placeholder="ROOM CODE"
             maxLength={12}
-            style={{ ...input, textTransform: 'uppercase', letterSpacing: 2, flex: 1 }}
+            autoCapitalize="off"
+            autoCorrect="off"
+            spellCheck={false}
+            style={{ ...input, letterSpacing: 2, flex: 1 }}
           />
           <button onClick={() => go('join')} disabled={!!busy || !joinCode.trim()} style={ghostBtn}>
             {busy === 'join' ? 'Joining…' : 'Join'}
@@ -160,9 +164,34 @@ export function Lobby({ onEnter }: Props) {
         </div>
 
         {err && <div style={errBox}>{err}</div>}
+
+        <MobileNotice />
       </div>
     </div>
   )
+}
+
+// Mobile browsers can't request pointer lock, so the 3D gameplay won't work.
+// The lobby itself (joining/creating rooms, sharing invite links) does work,
+// so we surface a clear note rather than hiding the page entirely.
+function MobileNotice() {
+  const isTouch = typeof window !== 'undefined' &&
+    (('ontouchstart' in window) || (navigator.maxTouchPoints ?? 0) > 0) &&
+    !window.matchMedia?.('(hover: hover) and (pointer: fine)').matches
+  if (!isTouch) return null
+  return (
+    <div style={mobileNote}>
+      📱 Heads-up: gameplay needs a mouse + keyboard, so play on desktop.
+      You can still create / share a room from your phone — open the invite
+      link on your laptop to play.
+    </div>
+  )
+}
+
+const mobileNote: React.CSSProperties = {
+  marginTop: 14, padding: '10px 12px', fontSize: 12,
+  background: 'rgba(234,179,8,0.12)', border: '1px solid #facc15',
+  color: '#fef3c7', lineHeight: 1.45,
 }
 
 const shell: React.CSSProperties = {
