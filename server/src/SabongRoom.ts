@@ -21,6 +21,7 @@ export class Bird extends Schema {
   @type("number") hasteUntil = 0;
   @type("number") regenUntil = 0;
   @type("number") immortalUntil = 0;
+  @type("number") portalCooldownUntil = 0;
 }
 
 export class ItemDrop extends Schema {
@@ -45,12 +46,20 @@ export class SabongState extends Schema {
 //   Player1 at (-3,0,0), forward +X  → ry = atan2(-1, 0) = -π/2
 //   Player2 at (+3,0,0), forward -X  → ry = atan2( 1, 0) =  π/2
 const SPAWNS: Array<{ x: number; z: number; ry: number; color: string }> = [
-  { x: -5, z: 0,  ry: -Math.PI / 2, color: "#dc2626" },
-  { x:  5, z: 0,  ry:  Math.PI / 2, color: "#2563eb" },
+  { x: -8, z: 0,  ry: -Math.PI / 2, color: "#dc2626" },
+  { x:  8, z: 0,  ry:  Math.PI / 2, color: "#2563eb" },
 ];
 
 // Arena radius (server-authoritative items spawn inside this; client matches).
-const ARENA_R = 10;
+const ARENA_R = 14;
+const PORTAL_RADIUS = 1.0;
+const PORTAL_COOLDOWN_MS = 1200;
+const PORTAL_POINTS = [
+  { x: 12, z: 0 },
+  { x: -12, z: 0 },
+  { x: 0, z: 12 },
+  { x: 0, z: -12 },
+];
 
 // Weapons table. ammo=-1 means unlimited. Ranged uses straight-line raycast;
 // melee uses cone-in-front check. Cooldowns intentionally vary so the choice
@@ -102,7 +111,30 @@ export class SabongRoom extends Room<SabongState> {
     this.onMessage("pose", (client, p: { x: number; y: number; z: number; ry: number }) => {
       const b = this.state.birds.get(client.sessionId);
       if (!b || !b.alive) return;
-      b.x = p.x; b.y = p.y; b.z = p.z; b.ry = p.ry;
+      const now = Date.now();
+      let nx = p.x;
+      let nz = p.z;
+      const rr = Math.hypot(nx, nz);
+      const maxR = ARENA_R - 0.5;
+      if (rr > maxR) {
+        const k = maxR / rr;
+        nx *= k;
+        nz *= k;
+      }
+      if (now >= b.portalCooldownUntil) {
+        const entered = PORTAL_POINTS.find((portal) => Math.hypot(nx - portal.x, nz - portal.z) <= PORTAL_RADIUS);
+        if (entered) {
+          const target = this.chooseRandomPortal(entered);
+          nx = target.x;
+          nz = target.z;
+          b.portalCooldownUntil = now + PORTAL_COOLDOWN_MS;
+          this.broadcast('teleport', { id: b.id, x: nx, z: nz });
+        }
+      }
+      b.x = nx;
+      b.y = p.y;
+      b.z = nz;
+      b.ry = p.ry;
     });
 
     this.onMessage("peck", (client) => {
@@ -181,6 +213,12 @@ export class SabongRoom extends Room<SabongState> {
   }
 
   private dropCounter = 0;
+
+  private chooseRandomPortal(from: { x: number; z: number }) {
+    const others = PORTAL_POINTS.filter((p) => p.x !== from.x || p.z !== from.z)
+    const choice = others[Math.floor(Math.random() * others.length)]
+    return choice ?? from
+  }
 
   private handleMelee(client: Client) {
     if (this.state.phase !== "fighting") return;

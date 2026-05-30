@@ -11,6 +11,19 @@ export interface GameMode {
   enabled: boolean
 }
 
+// Push the current room into the URL so the tab can be shared / bookmarked.
+// Uses replaceState so it doesn't pollute browser history with each join.
+export function writeInviteUrl(roomCode: string, mode: string) {
+  const u = new URL(window.location.href)
+  u.searchParams.set('room', roomCode)
+  u.searchParams.set('mode', mode)
+  window.history.replaceState({}, '', `${u.pathname}?${u.searchParams.toString()}`)
+}
+
+export function clearInviteUrl() {
+  window.history.replaceState({}, '', window.location.pathname)
+}
+
 export const GAME_MODES: GameMode[] = [
   { id: 'rage',   label: 'Wall of Anger', blurb: 'Solo or with friends. Throw everything at the wall.',        enabled: true },
   { id: 'sabong', label: 'Sabong',        blurb: '1v1 — rooster vs rooster. Peck the other bird out.',         enabled: true },
@@ -36,16 +49,47 @@ export function Lobby({ onEnter }: Props) {
   // Already connected to a room? Skip the lobby.
   useEffect(() => { if (code) onEnter() }, [code, onEnter])
 
+  // Auto-join from invite link (?room=XYZ&mode=sabong). Runs once on mount.
+  useEffect(() => {
+    if (code) return
+    const url = new URL(window.location.href)
+    const inviteRoom = url.searchParams.get('room')
+    const inviteMode = url.searchParams.get('mode')
+    if (!inviteRoom) return
+    if (inviteMode) setMode(inviteMode)
+    const name = myName.trim() || `Player${Math.floor(Math.random() * 1000)}`
+    setBusy('join')
+    joinRoom(inviteRoom.toUpperCase(), name, inviteMode || mode).then((res) => {
+      setBusy(null)
+      if (res.ok) {
+        writeInviteUrl(inviteRoom.toUpperCase(), inviteMode || mode)
+        onEnter()
+      } else {
+        setErr(res.error || 'Invite link is no longer valid')
+        // Clear the bad URL so a refresh starts fresh
+        window.history.replaceState({}, '', window.location.pathname)
+      }
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
   async function go(action: 'quick' | 'create' | 'join') {
     if (busy) return
     setBusy(action); setErr(null)
     const name = myName.trim() || `Player${Math.floor(Math.random() * 1000)}`
-    let res: { ok: boolean; error?: string }
-    if (action === 'quick') res = await quickplay(name, mode)
-    else if (action === 'create') res = await createRoom(name, mode)
-    else res = await joinRoom(joinCode.trim().toUpperCase(), name, mode)
+    let res: { ok: boolean; error?: string; code?: string }
+    let resolvedCode: string | undefined
+    if (action === 'quick') {
+      res = await quickplay(name, mode); resolvedCode = res.code
+    } else if (action === 'create') {
+      res = await createRoom(name, mode); resolvedCode = res.code
+    } else {
+      const c = joinCode.trim().toUpperCase()
+      res = await joinRoom(c, name, mode); resolvedCode = c
+    }
     setBusy(null)
     if (!res.ok) { setErr(res.error || 'Could not connect'); return }
+    if (resolvedCode) writeInviteUrl(resolvedCode, mode)
     onEnter()
   }
 

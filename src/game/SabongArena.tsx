@@ -5,9 +5,16 @@ import * as THREE from 'three'
 // Cockfighting ring: circular sand pit, low wooden fence around the perimeter,
 // dark crowd-silhouette backdrop. Self-contained — does not reuse the rage room.
 
-export const ARENA_RADIUS = 10
+export const ARENA_RADIUS = 14
 const FENCE_HEIGHT = 0.7
 const POST_COUNT = 24
+const PORTAL_RADIUS = 1.0
+const PORTAL_POINTS = [
+  { x: 12, z: 0 },
+  { x: -12, z: 0 },
+  { x: 0, z: 12 },
+  { x: 0, z: -12 },
+]
 
 export function SabongArena() {
   // Pre-compute fence post positions around the ring
@@ -69,6 +76,20 @@ export function SabongArena() {
 
       {/* Crowd silhouettes — low-poly ring of dark cylinders behind the fence */}
       <CrowdRing />
+
+      {/* Sabong-only teleport portals */}
+      {PORTAL_POINTS.map((portal, index) => (
+        <group key={index} position={[portal.x, 0, portal.z]}>
+          <mesh rotation={[-Math.PI / 2, 0, 0]}>
+            <ringGeometry args={[PORTAL_RADIUS * 0.75, PORTAL_RADIUS, 32]} />
+            <meshStandardMaterial color="#8b5cf6" transparent opacity={0.55} side={THREE.DoubleSide} />
+          </mesh>
+          <mesh position={[0, 0.01, 0]} rotation={[-Math.PI / 2, 0, 0]}>
+            <circleGeometry args={[PORTAL_RADIUS * 0.65, 32]} />
+            <meshStandardMaterial color="#c084fc" emissive="#8b5cf6" toneMapped={false} roughness={1} />
+          </mesh>
+        </group>
+      ))}
 
       {/* Overhead spotlight to focus the action */}
       <spotLight

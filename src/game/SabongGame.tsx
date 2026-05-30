@@ -59,20 +59,20 @@ interface RoomView {
 // Client mirror of the server WEAPONS table — used to decide whether to send
 // 'peck' (melee) vs 'shoot' (ranged) and to label the HUD chip.
 export const CLIENT_WEAPONS: Record<string, { ranged: boolean; label: string; emoji: string }> = {
-  beak:      { ranged: false, label: 'Beak',      emoji: '🪶' },
-  spear:     { ranged: false, label: 'Spear',     emoji: '🔱' },
-  slingshot: { ranged: true,  label: 'Slingshot', emoji: '🏹' },
-  lightning: { ranged: true,  label: 'Lightning', emoji: '⚡' },
+  beak: { ranged: false, label: 'Beak', emoji: '🪶' },
+  spear: { ranged: false, label: 'Spear', emoji: '🔱' },
+  slingshot: { ranged: true, label: 'Slingshot', emoji: '🏹' },
+  lightning: { ranged: true, label: 'Lightning', emoji: '⚡' },
 }
 export const CLIENT_ITEMS: Record<string, { label: string; color: string; emoji: string }> = {
-  spear:        { label: 'Spear',        color: '#9ca3af', emoji: '🔱' },
-  slingshot:    { label: 'Slingshot',    color: '#a3a3a3', emoji: '🏹' },
-  lightning:    { label: 'Lightning',    color: '#facc15', emoji: '⚡' },
-  doubleDamage: { label: 'Double Dmg',   color: '#dc2626', emoji: '×2' },
-  haste:        { label: 'Haste',        color: '#3b82f6', emoji: '💨' },
-  regen:        { label: 'Regen',        color: '#22c55e', emoji: '🌿' },
-  heal:         { label: 'Heal +40',     color: '#ef4444', emoji: '❤️' },
-  immortal:     { label: 'Immortal',     color: '#e879f9', emoji: '✨' },
+  spear: { label: 'Spear', color: '#9ca3af', emoji: '🔱' },
+  slingshot: { label: 'Slingshot', color: '#a3a3a3', emoji: '🏹' },
+  lightning: { label: 'Lightning', color: '#facc15', emoji: '⚡' },
+  doubleDamage: { label: 'Double Dmg', color: '#dc2626', emoji: '×2' },
+  haste: { label: 'Haste', color: '#3b82f6', emoji: '💨' },
+  regen: { label: 'Regen', color: '#22c55e', emoji: '🌿' },
+  heal: { label: 'Heal +40', color: '#ef4444', emoji: '❤️' },
+  immortal: { label: 'Immortal', color: '#e879f9', emoji: '✨' },
 }
 
 function readRoomState(): RoomView {
@@ -87,9 +87,9 @@ function readRoomState(): RoomView {
       hp: b.hp, maxHp: b.maxHp ?? 100, alive: b.alive,
       weapon: b.weapon ?? 'beak',
       weaponAmmo: b.weaponAmmo ?? -1,
-      dmgMulUntil:   b.dmgMulUntil   ?? 0,
-      hasteUntil:    b.hasteUntil    ?? 0,
-      regenUntil:    b.regenUntil    ?? 0,
+      dmgMulUntil: b.dmgMulUntil ?? 0,
+      hasteUntil: b.hasteUntil ?? 0,
+      regenUntil: b.regenUntil ?? 0,
       immortalUntil: b.immortalUntil ?? 0,
     })
   })
@@ -121,7 +121,7 @@ export function SabongGame({ onExit }: { onExit?: () => void } = {}) {
   const [camMode, setCamMode] = useState<CameraMode>(() => {
     try { return (localStorage.getItem('sabongCam') as CameraMode) || 'third' } catch { return 'third' }
   })
-  useEffect(() => { try { localStorage.setItem('sabongCam', camMode) } catch {} }, [camMode])
+  useEffect(() => { try { localStorage.setItem('sabongCam', camMode) } catch { } }, [camMode])
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key.toLowerCase() === 'v') setCamMode((m) => m === 'first' ? 'third' : 'first')
@@ -157,7 +157,7 @@ export function SabongGame({ onExit }: { onExit?: () => void } = {}) {
       if (p.from === myId) setPeckFlash(performance.now())
       if (p.to === myId) setHitFlash(performance.now())
     }
-    r.onMessage('shotHit',  (p: any) => addBeam(p))
+    r.onMessage('shotHit', (p: any) => addBeam(p))
     r.onMessage('shotMiss', (p: any) => addBeam(p))
     sync()
   }, [myId])
@@ -303,6 +303,15 @@ function RoosterController({ phase, alive, myBird, camMode, items }: RoosterCont
   const cameraRef = useRef(camera)
   cameraRef.current = camera
   useEffect(() => {
+    const r = getRoom()
+    if (!r) return
+    r.onMessage('teleport', (p: { id: string; x: number; z: number }) => {
+      if (p.id !== myId) return
+      posRef.current.set(p.x, ROOSTER_EYE, p.z)
+      camera.position.copy(posRef.current)
+    })
+  }, [myId, camera])
+  useEffect(() => {
     const onClick = () => {
       if (phase !== 'fighting' || !alive) return
       if (document.pointerLockElement === null) return
@@ -435,14 +444,14 @@ function RoosterController({ phase, alive, myBird, camMode, items }: RoosterCont
         const walking = horizDelta > 0.01
         const tt = performance.now() / 1000
         const swing = walking ? Math.sin(tt * 12) * 0.5 : 0
-        if (localLeftLegRef.current)  localLeftLegRef.current.rotation.x  = swing
+        if (localLeftLegRef.current) localLeftLegRef.current.rotation.x = swing
         if (localRightLegRef.current) localRightLegRef.current.rotation.x = -swing
         const airborne = lift > 0.05
         const flapAmp = airborne ? 1.0 : walking ? 0.35 : 0.08
         const flapSpeed = airborne ? 22 : 8
         const flap = Math.sin(tt * flapSpeed) * flapAmp
-        if (localLeftWingRef.current)  localLeftWingRef.current.rotation.z  = -0.25 - flap
-        if (localRightWingRef.current) localRightWingRef.current.rotation.z =  0.25 + flap
+        if (localLeftWingRef.current) localLeftWingRef.current.rotation.z = -0.25 - flap
+        if (localRightWingRef.current) localRightWingRef.current.rotation.z = 0.25 + flap
       }
     }
 
@@ -652,8 +661,8 @@ function JaggedComb() {
   const teeth = [
     { x: -0.12, h: 0.18 },
     { x: -0.04, h: 0.26 },
-    { x:  0.04, h: 0.26 },
-    { x:  0.12, h: 0.18 },
+    { x: 0.04, h: 0.26 },
+    { x: 0.12, h: 0.18 },
   ]
   return (
     <group position={[0, 0.28, -0.02]}>
@@ -737,7 +746,7 @@ function Rooster({ bird }: { bird: BirdView }) {
     const walking = horizDelta > 0.01
     const tt = performance.now() / 1000
     const swing = walking ? Math.sin(tt * 12) * 0.5 : 0
-    if (leftLegRef.current)  leftLegRef.current.rotation.x  = swing
+    if (leftLegRef.current) leftLegRef.current.rotation.x = swing
     if (rightLegRef.current) rightLegRef.current.rotation.x = -swing
 
     // Wing flap — fast and wide while airborne, soft while walking, near-tucked at rest.
@@ -745,8 +754,8 @@ function Rooster({ bird }: { bird: BirdView }) {
     const flapAmp = airborne ? 1.0 : walking ? 0.35 : 0.08
     const flapSpeed = airborne ? 22 : 8
     const flap = Math.sin(tt * flapSpeed) * flapAmp
-    if (leftWingRef.current)  leftWingRef.current.rotation.z  = -0.25 - flap
-    if (rightWingRef.current) rightWingRef.current.rotation.z =  0.25 + flap
+    if (leftWingRef.current) leftWingRef.current.rotation.z = -0.25 - flap
+    if (rightWingRef.current) rightWingRef.current.rotation.z = 0.25 + flap
   })
   return (
     <RoosterModel
@@ -968,6 +977,12 @@ function SabongHUD({
         {camMode === 'third' ? '3rd' : '1st'} · press V
       </button>
 
+      {/* Room invite chip — shows the code and copies a shareable link. */}
+      <RoomInviteChip />
+
+      {/* Hint when the player is alone in the room — make it obvious how to invite. */}
+      {view.phase === 'waiting' && !opponent && <WaitingForOpponentBanner />}
+
       {/* Weapon + buffs panel */}
       {me && view.phase !== 'over' && <LoadoutPanel me={me} />}
     </>
@@ -990,10 +1005,10 @@ function LoadoutPanel({ me }: { me: BirdView }) {
     if (!info) return
     buffs.push({ key, label: info.label, emoji: info.emoji, color: info.color, remainingMs: until - now, totalMs })
   }
-  push('doubleDamage', me.dmgMulUntil,   15000)
-  push('haste',        me.hasteUntil,    15000)
-  push('regen',        me.regenUntil,    20000)
-  push('immortal',     me.immortalUntil, 10000)
+  push('doubleDamage', me.dmgMulUntil, 15000)
+  push('haste', me.hasteUntil, 15000)
+  push('regen', me.regenUntil, 20000)
+  push('immortal', me.immortalUntil, 10000)
   return (
     <div style={loadoutPanel}>
       <div style={loadoutRow}>
@@ -1058,6 +1073,59 @@ const leaveBtn: React.CSSProperties = {
   border: '2px solid #f5f1e8', padding: '12px 18px',
   fontFamily: '"JetBrains Mono", monospace', fontSize: 13, letterSpacing: 1,
   cursor: 'pointer',
+}
+
+function RoomInviteChip() {
+  const code = useMultiplayer((s) => s.code)
+  const mode = useMultiplayer((s) => s.mode)
+  const [copied, setCopied] = useState(false)
+  if (!code) return null
+  const inviteUrl = `${window.location.origin}${window.location.pathname}?room=${code}&mode=${mode}`
+  const onCopy = async () => {
+    try { await navigator.clipboard.writeText(inviteUrl); setCopied(true); setTimeout(() => setCopied(false), 1600) } catch { }
+  }
+  return (
+    <div style={inviteChip}>
+      <span style={{ opacity: 0.7, fontSize: 10, letterSpacing: 1 }}>ROOM</span>
+      <code style={{ fontSize: 14, letterSpacing: 2, color: '#facc15' }}>{code}</code>
+      <button onClick={onCopy} style={inviteBtn}>
+        {copied ? '✓ Copied' : '📋 Invite link'}
+      </button>
+    </div>
+  )
+}
+
+function WaitingForOpponentBanner() {
+  const code = useMultiplayer((s) => s.code)
+  return (
+    <div style={waitingBanner}>
+      <div style={{ fontFamily: 'Anton, sans-serif', fontSize: 28, letterSpacing: 2 }}>
+        WAITING FOR OPPONENT…
+      </div>
+      <div style={{ marginTop: 6, opacity: 0.8 }}>
+        Share room code <b style={{ color: '#facc15' }}>{code}</b> or use the invite link in the top-right.
+      </div>
+    </div>
+  )
+}
+
+const inviteChip: React.CSSProperties = {
+  position: 'fixed', top: 60, right: 16, zIndex: 45,
+  background: 'rgba(12,12,12,0.85)', color: '#fef3c7',
+  border: '2px solid rgba(255,255,255,0.15)',
+  padding: '6px 10px',
+  display: 'flex', alignItems: 'center', gap: 8,
+  fontFamily: '"JetBrains Mono", monospace',
+}
+const inviteBtn: React.CSSProperties = {
+  background: '#facc15', color: '#0c0c0c',
+  border: 'none', padding: '4px 8px',
+  fontFamily: 'inherit', fontSize: 12, cursor: 'pointer', letterSpacing: 1,
+}
+const waitingBanner: React.CSSProperties = {
+  position: 'fixed', top: '38%', left: 0, right: 0, zIndex: 45,
+  textAlign: 'center', color: '#f5f1e8',
+  fontFamily: '"JetBrains Mono", monospace', pointerEvents: 'none',
 }
 
 const camChip: React.CSSProperties = {
