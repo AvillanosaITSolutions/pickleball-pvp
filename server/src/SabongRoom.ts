@@ -243,12 +243,12 @@ export class SabongRoom extends Room<SabongState> {
       if (other.id === me.id || !other.alive) return;
       const ox = other.x - me.x;
       const oz = other.z - me.z;
-      const t = ox * ax + oz * az;
+      const t: number = ox * ax + oz * az;
       if (t < 0 || t > w.range) return;
       const px = ox - t * ax, pz = oz - t * az;
       const perp = Math.hypot(px, pz);
       if (perp > HIT_RADIUS) return;
-      if (!best || t < best.t) best = { other: other as Bird, t } as { other: Bird; t: number };
+      if (!best || t < best.t) best = { other: other as Bird, t };
     });
 
     const endT = best ? best.t : w.range;
