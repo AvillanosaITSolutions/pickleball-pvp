@@ -181,9 +181,8 @@ function MobileNotice() {
   if (!isTouch) return null
   return (
     <div style={mobileNote}>
-      📱 Heads-up: gameplay needs a mouse + keyboard, so play on desktop.
-      You can still create / share a room from your phone — open the invite
-      link on your laptop to play.
+      📱 Sabong supports touch — on-screen joystick + tap to peck.
+      Wall of Anger still needs a mouse + keyboard, so play that one on desktop.
     </div>
   )
 }

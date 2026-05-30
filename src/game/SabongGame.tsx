@@ -112,6 +112,29 @@ export const BEAM_MS = 220
 
 export type CameraMode = 'first' | 'third'
 
+// Touch-input bridge. The TouchControls overlay (DOM) writes here; the
+// in-canvas RoosterController reads it every frame. Module-level so neither
+// side has to thread refs through props.
+export const touchInput = {
+  forward: 0,       // -1..1 (joystick Y, +1 = walk forward)
+  strafe: 0,        // -1..1 (joystick X, +1 = strafe right)
+  lookDx: 0,        // accumulated pixels — consumed and zeroed each frame
+  lookDy: 0,
+  jumpQueued: false,
+  attackQueued: false,
+}
+
+// Filled in by RoosterController so the DOM-side TouchControls can fire an
+// attack without rebuilding the same weapon/aim logic.
+export const attackFnRef: { current: (() => void) | null } = { current: null }
+
+export function isTouchDevice(): boolean {
+  if (typeof window === 'undefined') return false
+  const hasTouch = ('ontouchstart' in window) || (navigator.maxTouchPoints ?? 0) > 0
+  const fineHover = window.matchMedia?.('(hover: hover) and (pointer: fine)').matches
+  return hasTouch && !fineHover
+}
+
 export function SabongGame({ onExit }: { onExit?: () => void } = {}) {
   const [view, setView] = useState<RoomView>(() => readRoomState())
   const myId = useMultiplayer((s) => s.myId)
@@ -173,6 +196,9 @@ export function SabongGame({ onExit }: { onExit?: () => void } = {}) {
         shadows
         camera={{ fov: 75, near: 0.1, far: 200 }}
         onPointerDown={() => {
+          // Mobile browsers can't (and shouldn't) request pointer lock — the
+          // TouchControls overlay handles look + actions instead.
+          if (isTouchDevice()) return
           const el = document.querySelector('canvas') as HTMLCanvasElement | null
           if (el && document.pointerLockElement !== el) el.requestPointerLock?.()
         }}
@@ -212,6 +238,12 @@ export function SabongGame({ onExit }: { onExit?: () => void } = {}) {
         onLeave={() => { leaveRoom(); onExit?.() }}
         onRematch={() => sendRoomMessage('rematch')}
       />
+
+      <TouchControls
+        phase={view.phase}
+        alive={me?.alive ?? true}
+        onCamToggle={() => setCamMode((m) => m === 'first' ? 'third' : 'first')}
+      />
     </>
   )
 }
@@ -235,6 +267,9 @@ function RoosterController({ phase, alive, myBird, camMode, items }: RoosterCont
   const lastPoseEmitRef = useRef(0)
   const initialized = useRef(false)
   const myId = useMultiplayer.getState().myId
+  // Touch builds rotate the camera manually (no PointerLockControls). Use YXZ
+  // so yaw lives on .y and pitch on .x without gimbal weirdness.
+  useEffect(() => { camera.rotation.order = 'YXZ' }, [camera])
 
   // Refs for the local bird's visual model (only rendered in third-person).
   const localGroupRef = useRef<THREE.Group>(null)
@@ -312,9 +347,8 @@ function RoosterController({ phase, alive, myBird, camMode, items }: RoosterCont
     })
   }, [myId, camera])
   useEffect(() => {
-    const onClick = () => {
+    const doAttack = () => {
       if (phase !== 'fighting' || !alive) return
-      if (document.pointerLockElement === null) return
       const weapon = myBird?.weapon ?? 'beak'
       const spec = CLIENT_WEAPONS[weapon] ?? CLIENT_WEAPONS.beak
       if (spec.ranged) {
@@ -328,12 +362,42 @@ function RoosterController({ phase, alive, myBird, camMode, items }: RoosterCont
       const mid = useMultiplayer.getState().myId
       if (mid) peckStartTimes.set(mid, localPeckStart.current)
     }
+    attackFnRef.current = doAttack
+    const onClick = () => {
+      // Desktop: require pointer lock so stray clicks on UI don't attack.
+      // Touch: TouchControls handles the attack button directly via attackFnRef.
+      if (isTouchDevice()) return
+      if (document.pointerLockElement === null) return
+      doAttack()
+    }
     window.addEventListener('mousedown', onClick)
     return () => window.removeEventListener('mousedown', onClick)
   }, [phase, alive, myBird?.weapon])
 
   useFrame((_, dt) => {
     if (!alive) return
+
+    // Apply touch look (no-op on desktop — PointerLockControls drives the camera).
+    if (touchInput.lookDx !== 0 || touchInput.lookDy !== 0) {
+      const sens = 0.0035
+      camera.rotation.y -= touchInput.lookDx * sens
+      camera.rotation.x -= touchInput.lookDy * sens
+      const pitchLimit = Math.PI / 2 - 0.05
+      if (camera.rotation.x > pitchLimit) camera.rotation.x = pitchLimit
+      if (camera.rotation.x < -pitchLimit) camera.rotation.x = -pitchLimit
+      touchInput.lookDx = 0
+      touchInput.lookDy = 0
+    }
+
+    // Drain queued touch-jump.
+    if (touchInput.jumpQueued) {
+      if (groundedRef.current) {
+        vyRef.current = JUMP_V
+        groundedRef.current = false
+      }
+      touchInput.jumpQueued = false
+    }
+
     const forward = new THREE.Vector3()
     camera.getWorldDirection(forward)
     forward.y = 0
@@ -345,11 +409,19 @@ function RoosterController({ phase, alive, myBird, camMode, items }: RoosterCont
     if (keys.current.s) move.sub(forward)
     if (keys.current.d) move.add(right)
     if (keys.current.a) move.sub(right)
+    // Touch joystick adds analog input on top of any keyboard input.
+    if (touchInput.forward !== 0) move.addScaledVector(forward, touchInput.forward)
+    if (touchInput.strafe !== 0) move.addScaledVector(right, touchInput.strafe)
     // Haste buff multiplies movement speed locally; server has no opinion on
     // walking velocity, just on attack/pickup ranges.
     const hasted = (myBird?.hasteUntil ?? 0) > Date.now()
     const speed = ROOSTER_SPEED * (hasted ? 1.6 : 1)
-    if (move.lengthSq() > 0) move.normalize().multiplyScalar(speed * dt)
+    if (move.lengthSq() > 0) {
+      // Analog stick at the edge already gives magnitude 1 — clamp so we
+      // don't multiply by >1, but keep partial-tilt magnitudes intact.
+      if (move.length() > 1) move.normalize()
+      move.multiplyScalar(speed * dt)
+    }
 
     posRef.current.add(move)
     // Clamp inside the circular arena
@@ -482,7 +554,7 @@ function RoosterController({ phase, alive, myBird, camMode, items }: RoosterCont
 
   return (
     <>
-      <PointerLockControls />
+      {!isTouchDevice() && <PointerLockControls />}
       {myBird && (
         <RoosterModel
           color={myBird.color}
@@ -1185,4 +1257,185 @@ const crosshair: React.CSSProperties = {
   position: 'fixed', top: '50%', left: '50%', width: 6, height: 6,
   marginLeft: -3, marginTop: -3, background: '#fef3c7', borderRadius: '50%',
   pointerEvents: 'none', zIndex: 35, opacity: 0.7,
+}
+
+// Mobile-only overlay: virtual joystick (bottom-left), drag-to-look surface
+// (right half of screen, behind the buttons), and action buttons. Writes into
+// the shared `touchInput` object each frame so RoosterController can consume.
+function TouchControls({
+  phase, alive, onCamToggle,
+}: { phase: string; alive: boolean; onCamToggle: () => void }) {
+  const [enabled, setEnabled] = useState(false)
+  useEffect(() => { setEnabled(isTouchDevice()) }, [])
+
+  // Joystick state: which pointerId owns it, origin, and current knob offset.
+  const stickRef = useRef<HTMLDivElement>(null)
+  const stick = useRef<{ id: number | null; ox: number; oy: number; dx: number; dy: number }>({
+    id: null, ox: 0, oy: 0, dx: 0, dy: 0,
+  })
+  const [, force] = useState(0)
+  const tick = () => force((n) => (n + 1) & 0xffff)
+
+  // Look pointer state — separate id so look + move work simultaneously.
+  const look = useRef<{ id: number | null; lx: number; ly: number }>({ id: null, lx: 0, ly: 0 })
+
+  if (!enabled) return null
+
+  const STICK_RADIUS = 56
+
+  const onStickStart = (e: React.PointerEvent) => {
+    if (stick.current.id !== null) return
+    e.preventDefault()
+    ;(e.currentTarget as Element).setPointerCapture?.(e.pointerId)
+    stick.current.id = e.pointerId
+    stick.current.ox = e.clientX
+    stick.current.oy = e.clientY
+  }
+  const onStickMove = (e: React.PointerEvent) => {
+    if (stick.current.id !== e.pointerId) return
+    let dx = e.clientX - stick.current.ox
+    let dy = e.clientY - stick.current.oy
+    const len = Math.hypot(dx, dy)
+    if (len > STICK_RADIUS) { dx = (dx / len) * STICK_RADIUS; dy = (dy / len) * STICK_RADIUS }
+    stick.current.dx = dx
+    stick.current.dy = dy
+    // Translate to axes: up = forward (+), right = strafe (+). Deadzone 15%.
+    const nx = dx / STICK_RADIUS
+    const ny = dy / STICK_RADIUS
+    const dead = 0.15
+    touchInput.strafe = Math.abs(nx) < dead ? 0 : nx
+    touchInput.forward = Math.abs(ny) < dead ? 0 : -ny
+    tick()
+  }
+  const onStickEnd = (e: React.PointerEvent) => {
+    if (stick.current.id !== e.pointerId) return
+    stick.current.id = null
+    stick.current.dx = 0
+    stick.current.dy = 0
+    touchInput.forward = 0
+    touchInput.strafe = 0
+    tick()
+  }
+
+  const onLookStart = (e: React.PointerEvent) => {
+    if (look.current.id !== null) return
+    ;(e.currentTarget as Element).setPointerCapture?.(e.pointerId)
+    look.current.id = e.pointerId
+    look.current.lx = e.clientX
+    look.current.ly = e.clientY
+  }
+  const onLookMove = (e: React.PointerEvent) => {
+    if (look.current.id !== e.pointerId) return
+    const dx = e.clientX - look.current.lx
+    const dy = e.clientY - look.current.ly
+    look.current.lx = e.clientX
+    look.current.ly = e.clientY
+    touchInput.lookDx += dx
+    touchInput.lookDy += dy
+  }
+  const onLookEnd = (e: React.PointerEvent) => {
+    if (look.current.id !== e.pointerId) return
+    look.current.id = null
+  }
+
+  const onAttack = (e: React.PointerEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    if (phase !== 'fighting' || !alive) return
+    attackFnRef.current?.()
+  }
+  const onJump = (e: React.PointerEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    if (!alive) return
+    touchInput.jumpQueued = true
+  }
+  const onCam = (e: React.PointerEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    onCamToggle()
+  }
+
+  return (
+    <>
+      {/* Look surface — covers the screen, but sits behind the joystick + buttons.
+          touchAction:none disables browser scroll/zoom on the canvas. */}
+      <div
+        style={lookSurface}
+        onPointerDown={onLookStart}
+        onPointerMove={onLookMove}
+        onPointerUp={onLookEnd}
+        onPointerCancel={onLookEnd}
+      />
+      {/* Joystick */}
+      <div
+        ref={stickRef}
+        style={joystickBase}
+        onPointerDown={onStickStart}
+        onPointerMove={onStickMove}
+        onPointerUp={onStickEnd}
+        onPointerCancel={onStickEnd}
+      >
+        <div
+          style={{
+            ...joystickKnob,
+            transform: `translate(calc(-50% + ${stick.current.dx}px), calc(-50% + ${stick.current.dy}px))`,
+          }}
+        />
+      </div>
+      {/* Action buttons — bottom-right */}
+      <div style={actionStack}>
+        <button style={actionBtnPrimary} onPointerDown={onAttack}>⚔</button>
+        <button style={actionBtn} onPointerDown={onJump}>↑</button>
+        <button style={actionBtnSmall} onPointerDown={onCam}>cam</button>
+      </div>
+    </>
+  )
+}
+
+const lookSurface: React.CSSProperties = {
+  position: 'fixed', inset: 0, zIndex: 38,
+  touchAction: 'none', background: 'transparent',
+}
+const joystickBase: React.CSSProperties = {
+  position: 'fixed', left: 32, bottom: 32, zIndex: 46,
+  width: 140, height: 140, borderRadius: '50%',
+  background: 'rgba(12,12,12,0.45)', border: '2px solid rgba(245,241,232,0.35)',
+  touchAction: 'none',
+}
+const joystickKnob: React.CSSProperties = {
+  position: 'absolute', left: '50%', top: '50%',
+  width: 64, height: 64, borderRadius: '50%',
+  background: 'rgba(250,204,21,0.85)', border: '2px solid #0c0c0c',
+  pointerEvents: 'none',
+}
+const actionStack: React.CSSProperties = {
+  position: 'fixed', right: 24, bottom: 32, zIndex: 46,
+  display: 'flex', flexDirection: 'column-reverse', alignItems: 'center', gap: 14,
+  touchAction: 'none',
+}
+const actionBtnBase: React.CSSProperties = {
+  border: '2px solid #0c0c0c',
+  fontFamily: 'Anton, sans-serif',
+  cursor: 'pointer',
+  display: 'flex', alignItems: 'center', justifyContent: 'center',
+  userSelect: 'none', touchAction: 'none',
+}
+const actionBtnPrimary: React.CSSProperties = {
+  ...actionBtnBase,
+  width: 92, height: 92, borderRadius: '50%',
+  background: '#dc2626', color: '#f5f1e8',
+  fontSize: 38, boxShadow: '4px 4px 0 #0c0c0c',
+}
+const actionBtn: React.CSSProperties = {
+  ...actionBtnBase,
+  width: 72, height: 72, borderRadius: '50%',
+  background: '#facc15', color: '#0c0c0c',
+  fontSize: 30, boxShadow: '3px 3px 0 #0c0c0c',
+}
+const actionBtnSmall: React.CSSProperties = {
+  ...actionBtnBase,
+  width: 58, height: 58, borderRadius: '50%',
+  background: 'rgba(12,12,12,0.7)', color: '#f5f1e8',
+  fontSize: 13, letterSpacing: 1, boxShadow: '2px 2px 0 #0c0c0c',
 }
