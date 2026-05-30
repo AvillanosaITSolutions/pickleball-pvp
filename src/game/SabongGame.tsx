@@ -53,6 +53,11 @@ function readRoomState(): RoomView {
   return { phase: s?.phase ?? 'waiting', winner: s?.winner ?? '', birds }
 }
 
+// Peck animation timestamps, keyed by bird id. Mutated outside React so useFrame
+// in any rooster can read without re-rendering. performance.now() of the peck start.
+export const peckStartTimes = new Map<string, number>()
+export const PECK_ANIM_MS = 280
+
 export function SabongGame() {
   const [view, setView] = useState<RoomView>(() => readRoomState())
   const myId = useMultiplayer((s) => s.myId)
@@ -66,10 +71,12 @@ export function SabongGame() {
     const sync = () => setView(readRoomState())
     r.onStateChange(sync)
     r.onMessage('peckHit', (p: { from: string; to: string; hp: number }) => {
+      peckStartTimes.set(p.from, performance.now())
       if (p.to === myId) setHitFlash(performance.now())
       if (p.from === myId) setPeckFlash(performance.now())
     })
     r.onMessage('peckMiss', (p: { from: string }) => {
+      peckStartTimes.set(p.from, performance.now())
       if (p.from === myId) setPeckFlash(performance.now())
     })
     sync()
@@ -155,11 +162,15 @@ function RoosterController({ phase, alive }: { phase: string; alive: boolean }) 
   }, [])
 
   // Click = peck. Server adjudicates hit.
+  const localPeckStart = useRef(0)
   useEffect(() => {
     const onClick = () => {
       if (phase !== 'fighting' || !alive) return
       if (document.pointerLockElement === null) return
       sendRoomMessage('peck')
+      localPeckStart.current = performance.now()
+      const mid = useMultiplayer.getState().myId
+      if (mid) peckStartTimes.set(mid, localPeckStart.current)
     }
     window.addEventListener('mousedown', onClick)
     return () => window.removeEventListener('mousedown', onClick)
@@ -188,7 +199,31 @@ function RoosterController({ phase, alive }: { phase: string; alive: boolean }) 
     posRef.current.z = THREE.MathUtils.clamp(posRef.current.z, -hd, hd)
     posRef.current.y = ROOSTER_EYE
 
+    // First-person peck animation: lunge camera forward+down on a fast ease-out,
+    // recover with a softer ease-in. Pure useFrame, no tween dep needed.
+    const elapsed = performance.now() - localPeckStart.current
+    let lungeForward = 0
+    let lungeDown = 0
+    if (elapsed >= 0 && elapsed < PECK_ANIM_MS) {
+      const t = elapsed / PECK_ANIM_MS
+      // 0..0.4 = strike (ease-out cubic), 0.4..1 = recover (ease-in quad)
+      if (t < 0.4) {
+        const k = t / 0.4
+        const eased = 1 - Math.pow(1 - k, 3)
+        lungeForward = eased * 0.22
+        lungeDown = eased * 0.08
+      } else {
+        const k = (t - 0.4) / 0.6
+        const eased = 1 - k * k
+        lungeForward = eased * 0.22
+        lungeDown = eased * 0.08
+      }
+    }
     camera.position.copy(posRef.current)
+    if (lungeForward > 0) {
+      camera.position.addScaledVector(forward, lungeForward)
+      camera.position.y -= lungeDown
+    }
 
     // Throttle pose emit ~20Hz
     const now = performance.now()
@@ -216,44 +251,71 @@ function RemoteRoosters({ birds }: { birds: BirdView[] }) {
 
 function Rooster({ bird }: { bird: BirdView }) {
   const ref = useRef<THREE.Group>(null)
+  const headRef = useRef<THREE.Group>(null)
+  const bodyRef = useRef<THREE.Group>(null)
   useFrame(() => {
     if (!ref.current) return
     // Smooth-lerp toward server position
     ref.current.position.lerp(new THREE.Vector3(bird.x, 0, bird.z), 0.25)
     ref.current.rotation.y = THREE.MathUtils.lerp(ref.current.rotation.y, bird.ry, 0.25)
     ref.current.visible = bird.alive
+
+    // Peck animation: head lunges forward (-z in local space) and tilts down;
+    // body leans slightly forward in sympathy. Same easing curve as the
+    // first-person lunge so they feel like the same motion.
+    const start = peckStartTimes.get(bird.id) ?? 0
+    const elapsed = performance.now() - start
+    let strike = 0
+    if (start > 0 && elapsed >= 0 && elapsed < PECK_ANIM_MS) {
+      const t = elapsed / PECK_ANIM_MS
+      strike = t < 0.4
+        ? 1 - Math.pow(1 - t / 0.4, 3)
+        : 1 - Math.pow((t - 0.4) / 0.6, 2)
+    }
+    if (headRef.current) {
+      headRef.current.position.z = -0.25 - strike * 0.35
+      headRef.current.position.y = 1.25 - strike * 0.18
+      headRef.current.rotation.x = strike * 0.9
+    }
+    if (bodyRef.current) {
+      bodyRef.current.rotation.x = strike * 0.18
+    }
   })
   return (
     <group ref={ref}>
-      {/* Body */}
-      <mesh castShadow position={[0, 0.55, 0]}>
-        <capsuleGeometry args={[0.35, 0.5, 8, 16]} />
-        <meshStandardMaterial color={bird.color} />
-      </mesh>
-      {/* Head */}
-      <mesh castShadow position={[0, 1.25, -0.25]}>
-        <sphereGeometry args={[0.22, 16, 12]} />
-        <meshStandardMaterial color={bird.color} />
-      </mesh>
-      {/* Comb (red) */}
-      <mesh castShadow position={[0, 1.5, -0.2]}>
-        <boxGeometry args={[0.05, 0.18, 0.3]} />
-        <meshStandardMaterial color="#b91c1c" />
-      </mesh>
-      {/* Beak */}
-      <mesh castShadow position={[0, 1.2, -0.46]} rotation={[Math.PI / 2, 0, 0]}>
-        <coneGeometry args={[0.06, 0.18, 8]} />
-        <meshStandardMaterial color="#fbbf24" />
-      </mesh>
-      {/* Eye dots */}
-      <mesh position={[0.12, 1.3, -0.36]}>
-        <sphereGeometry args={[0.03, 8, 8]} />
-        <meshStandardMaterial color="#0a0a0a" />
-      </mesh>
-      <mesh position={[-0.12, 1.3, -0.36]}>
-        <sphereGeometry args={[0.03, 8, 8]} />
-        <meshStandardMaterial color="#0a0a0a" />
-      </mesh>
+      <group ref={bodyRef}>
+        {/* Body */}
+        <mesh castShadow position={[0, 0.55, 0]}>
+          <capsuleGeometry args={[0.35, 0.5, 8, 16]} />
+          <meshStandardMaterial color={bird.color} />
+        </mesh>
+      </group>
+      {/* Head group — moved by peck animation. Children positioned relative to head origin. */}
+      <group ref={headRef} position={[0, 1.25, -0.25]}>
+        <mesh castShadow>
+          <sphereGeometry args={[0.22, 16, 12]} />
+          <meshStandardMaterial color={bird.color} />
+        </mesh>
+        {/* Comb (red) */}
+        <mesh castShadow position={[0, 0.25, 0.05]}>
+          <boxGeometry args={[0.05, 0.18, 0.3]} />
+          <meshStandardMaterial color="#b91c1c" />
+        </mesh>
+        {/* Beak */}
+        <mesh castShadow position={[0, -0.05, -0.21]} rotation={[Math.PI / 2, 0, 0]}>
+          <coneGeometry args={[0.06, 0.18, 8]} />
+          <meshStandardMaterial color="#fbbf24" />
+        </mesh>
+        {/* Eye dots */}
+        <mesh position={[0.12, 0.05, -0.11]}>
+          <sphereGeometry args={[0.03, 8, 8]} />
+          <meshStandardMaterial color="#0a0a0a" />
+        </mesh>
+        <mesh position={[-0.12, 0.05, -0.11]}>
+          <sphereGeometry args={[0.03, 8, 8]} />
+          <meshStandardMaterial color="#0a0a0a" />
+        </mesh>
+      </group>
       {/* Name tag */}
       <NameTag name={bird.name} hp={bird.hp} />
     </group>
