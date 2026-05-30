@@ -992,43 +992,46 @@ function SabongHUD({
   const peckGlow = Math.max(0, 1 - (now - peckFlash) / 300)
   const hitGlow = Math.max(0, 1 - (now - hitFlash) / 400)
 
+  const touch = isTouchDevice()
   return (
     <>
+      <SabongHUDStyles />
       {hitGlow > 0 && (
         <div style={{
           position: 'fixed', inset: 0, pointerEvents: 'none', zIndex: 30,
           boxShadow: `inset 0 0 ${120 * hitGlow}px ${40 * hitGlow}px rgba(220,38,38,${0.6 * hitGlow})`,
         }} />
       )}
-      <div style={hudShell}>
+      <div className="sabong-hud-shell" style={hudShell}>
         <BirdBadge bird={me} accent="#22c55e" label="YOU" peckGlow={peckGlow} />
-        <div style={vs}>VS</div>
+        <div className="sabong-vs" style={vs}>VS</div>
         <BirdBadge bird={opponent} accent="#dc2626" label={opponent ? 'OPP' : 'WAITING…'} peckGlow={0} />
       </div>
 
-      <div style={centerHint}>
+      <div className="sabong-center-hint" style={centerHint}>
         {view.phase === 'waiting' && 'Waiting for opponent…'}
-        {view.phase === 'fighting' && (
+        {view.phase === 'fighting' && !touch && (
           <span style={{ opacity: 0.7 }}>
             Click to peck · WASD to move · Space to jump · V toggles view · Esc to free cursor
           </span>
         )}
         {view.phase === 'over' && (
-          <div style={{ pointerEvents: 'auto', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 14 }}>
-            <span style={{ fontFamily: 'Anton, sans-serif', fontSize: 44, letterSpacing: 2 }}>
+          <div className="sabong-over-stack" style={{ pointerEvents: 'auto', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 14 }}>
+            <span className="sabong-over-title" style={{ fontFamily: 'Anton, sans-serif', fontSize: 44, letterSpacing: 2 }}>
               {view.winner === myId ? '🏆 YOU WIN' : view.winner ? '☠ DEFEATED' : 'DRAW'}
             </span>
             <div style={{ display: 'flex', gap: 10 }}>
               <button
                 onClick={(e) => { e.stopPropagation(); if (!iAmReady) onRematch() }}
                 disabled={iAmReady}
+                className="sabong-rematch"
                 style={iAmReady ? rematchBtnReady : rematchBtn}
               >
                 {iAmReady
                   ? (oppReady ? 'Resetting…' : 'Waiting for opponent…')
                   : '↻ Rematch'}
               </button>
-              <button onClick={(e) => { e.stopPropagation(); onLeave() }} style={leaveBtn}>
+              <button onClick={(e) => { e.stopPropagation(); onLeave() }} className="sabong-leave" style={leaveBtn}>
                 Leave
               </button>
             </div>
@@ -1044,10 +1047,12 @@ function SabongHUD({
       {/* Crosshair — first-person only; third-person shows the bird's own head as the aim cue */}
       {camMode === 'first' && <div style={crosshair} />}
 
-      {/* Camera-mode chip */}
-      <button onClick={onToggleCam} style={camChip}>
-        {camMode === 'third' ? '3rd' : '1st'} · press V
-      </button>
+      {/* Camera-mode chip — hidden on touch, since the touch overlay has its own cam button. */}
+      {!touch && (
+        <button onClick={onToggleCam} className="sabong-cam-chip" style={camChip}>
+          {camMode === 'third' ? '3rd' : '1st'} · press V
+        </button>
+      )}
 
       {/* Room invite chip — shows the code and copies a shareable link. */}
       <RoomInviteChip />
@@ -1058,6 +1063,58 @@ function SabongHUD({
       {/* Weapon + buffs panel */}
       {me && view.phase !== 'over' && <LoadoutPanel me={me} />}
     </>
+  )
+}
+
+// Mobile/portrait CSS overrides for the Sabong HUD. Inlined as a <style> tag
+// because every HUD piece uses inline styles — media queries can't reach those
+// directly, so we attach classNames and override here.
+function SabongHUDStyles() {
+  return (
+    <style>{`
+      @media (max-width: 720px), (orientation: portrait) {
+        .sabong-hud-shell { gap: 6px !important; padding: 0 8px !important; top: 8px !important; }
+        .sabong-badge {
+          min-width: 0 !important;
+          flex: 1 1 0 !important;
+          max-width: 38vw !important;
+          padding: 4px 8px !important;
+        }
+        .sabong-badge-label { font-size: 8px !important; letter-spacing: 1px !important; }
+        .sabong-badge-name { font-size: 13px !important; letter-spacing: 0.5px !important; }
+        .sabong-badge-hp { font-size: 10px !important; }
+        .sabong-vs { font-size: 20px !important; }
+
+        .sabong-invite-chip { top: 62px !important; right: 8px !important; padding: 4px 8px !important; gap: 6px !important; }
+        .sabong-invite-chip code { font-size: 11px !important; letter-spacing: 1px !important; }
+        .sabong-invite-btn { padding: 3px 6px !important; font-size: 10px !important; }
+
+        .sabong-loadout {
+          top: 108px !important; left: 8px !important; right: 8px !important;
+          bottom: auto !important; min-width: 0 !important;
+          padding: 5px 8px !important; font-size: 11px !important;
+        }
+        .sabong-loadout-row > span:nth-child(1) { font-size: 16px !important; }
+        .sabong-loadout-row > span:nth-child(2) { font-size: 14px !important; }
+
+        .sabong-center-hint { bottom: auto !important; top: 42% !important; font-size: 12px !important; padding: 0 16px !important; }
+        .sabong-over-title { font-size: 30px !important; letter-spacing: 1px !important; }
+        .sabong-rematch { font-size: 16px !important; padding: 10px 16px !important; }
+        .sabong-leave { font-size: 12px !important; padding: 10px 14px !important; }
+
+        .sabong-waiting { top: 30% !important; padding: 0 16px !important; }
+        .sabong-waiting > div:first-child { font-size: 20px !important; letter-spacing: 1px !important; }
+        .sabong-waiting > div:nth-child(2) { font-size: 12px !important; }
+
+        /* Touch controls: shrink so they fit comfortably on phones */
+        .sabong-joystick { width: 120px !important; height: 120px !important; left: 18px !important; bottom: 24px !important; }
+        .sabong-joystick-knob { width: 54px !important; height: 54px !important; }
+        .sabong-action-stack { right: 14px !important; bottom: 24px !important; gap: 10px !important; }
+        .sabong-action-primary { width: 78px !important; height: 78px !important; font-size: 30px !important; }
+        .sabong-action-btn { width: 60px !important; height: 60px !important; font-size: 24px !important; }
+        .sabong-action-btn-small { width: 50px !important; height: 50px !important; font-size: 11px !important; }
+      }
+    `}</style>
   )
 }
 
@@ -1082,8 +1139,8 @@ function LoadoutPanel({ me }: { me: BirdView }) {
   push('regen', me.regenUntil, 20000)
   push('immortal', me.immortalUntil, 10000)
   return (
-    <div style={loadoutPanel}>
-      <div style={loadoutRow}>
+    <div className="sabong-loadout" style={loadoutPanel}>
+      <div className="sabong-loadout-row" style={loadoutRow}>
         <span style={{ fontSize: 20 }}>{weaponInfo.emoji}</span>
         <span style={{ fontFamily: 'Anton, sans-serif', fontSize: 18, letterSpacing: 1 }}>{weaponInfo.label}</span>
         <span style={{ marginLeft: 'auto', opacity: 0.8 }}>
@@ -1093,7 +1150,7 @@ function LoadoutPanel({ me }: { me: BirdView }) {
       {buffs.map((b) => {
         const pct = Math.max(0, Math.min(1, b.remainingMs / b.totalMs))
         return (
-          <div key={b.key} style={{ ...loadoutRow, marginTop: 4 }}>
+          <div key={b.key} className="sabong-loadout-row" style={{ ...loadoutRow, marginTop: 4 }}>
             <span>{b.emoji}</span>
             <span style={{ fontSize: 12 }}>{b.label}</span>
             <div style={buffBar}>
@@ -1164,11 +1221,11 @@ function RoomInviteChip() {
     try { await navigator.clipboard.writeText(inviteUrl); setCopied(true); setTimeout(() => setCopied(false), 1600) } catch { }
   }
   return (
-    <div style={inviteChip}>
+    <div className="sabong-invite-chip" style={inviteChip}>
       <span style={{ opacity: 0.7, fontSize: 10, letterSpacing: 1 }}>ROOM</span>
       <code style={{ fontSize: 14, letterSpacing: 2, color: '#facc15' }}>{code}</code>
-      <button onClick={onCopy} style={inviteBtn}>
-        {copied ? '✓ Copied' : '📋 Invite link'}
+      <button onClick={onCopy} className="sabong-invite-btn" style={inviteBtn}>
+        {copied ? '✓' : '📋 Share'}
       </button>
     </div>
   )
@@ -1177,12 +1234,12 @@ function RoomInviteChip() {
 function WaitingForOpponentBanner() {
   const code = useMultiplayer((s) => s.code)
   return (
-    <div style={waitingBanner}>
+    <div className="sabong-waiting" style={waitingBanner}>
       <div style={{ fontFamily: 'Anton, sans-serif', fontSize: 28, letterSpacing: 2 }}>
         WAITING FOR OPPONENT…
       </div>
       <div style={{ marginTop: 6, opacity: 0.8 }}>
-        Share room code <b style={{ color: '#facc15' }}>{code}</b> or use the invite link in the top-right.
+        Share room <b style={{ color: '#facc15' }}>{code}</b> — tap the invite chip up top.
       </div>
     </div>
   )
@@ -1218,15 +1275,15 @@ const camChip: React.CSSProperties = {
 function BirdBadge({ bird, accent, label, peckGlow }: { bird?: BirdView; accent: string; label: string; peckGlow: number }) {
   const hp = bird?.hp ?? 0
   return (
-    <div style={{ ...badge, borderColor: accent, boxShadow: peckGlow > 0 ? `0 0 ${20 * peckGlow}px ${accent}` : undefined }}>
-      <div style={{ fontSize: 10, letterSpacing: 2, opacity: 0.7 }}>{label}</div>
-      <div style={{ fontFamily: 'Anton, sans-serif', fontSize: 20, letterSpacing: 1 }}>
+    <div className="sabong-badge" style={{ ...badge, borderColor: accent, boxShadow: peckGlow > 0 ? `0 0 ${20 * peckGlow}px ${accent}` : undefined }}>
+      <div className="sabong-badge-label" style={{ fontSize: 10, letterSpacing: 2, opacity: 0.7 }}>{label}</div>
+      <div className="sabong-badge-name" style={{ fontFamily: 'Anton, sans-serif', fontSize: 20, letterSpacing: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
         {bird?.name ?? '—'}
       </div>
       <div style={hpTrack}>
         <div style={{ ...hpFill, width: `${hp}%`, background: hp > 40 ? '#22c55e' : hp > 20 ? '#facc15' : '#dc2626' }} />
       </div>
-      <div style={{ fontSize: 11, opacity: 0.8 }}>{hp} HP</div>
+      <div className="sabong-badge-hp" style={{ fontSize: 11, opacity: 0.8 }}>{hp} HP</div>
     </div>
   )
 }
@@ -1370,6 +1427,7 @@ function TouchControls({
       {/* Joystick */}
       <div
         ref={stickRef}
+        className="sabong-joystick"
         style={joystickBase}
         onPointerDown={onStickStart}
         onPointerMove={onStickMove}
@@ -1377,6 +1435,7 @@ function TouchControls({
         onPointerCancel={onStickEnd}
       >
         <div
+          className="sabong-joystick-knob"
           style={{
             ...joystickKnob,
             transform: `translate(calc(-50% + ${stick.current.dx}px), calc(-50% + ${stick.current.dy}px))`,
@@ -1384,10 +1443,10 @@ function TouchControls({
         />
       </div>
       {/* Action buttons — bottom-right */}
-      <div style={actionStack}>
-        <button style={actionBtnPrimary} onPointerDown={onAttack}>⚔</button>
-        <button style={actionBtn} onPointerDown={onJump}>↑</button>
-        <button style={actionBtnSmall} onPointerDown={onCam}>cam</button>
+      <div className="sabong-action-stack" style={actionStack}>
+        <button className="sabong-action-primary" style={actionBtnPrimary} onPointerDown={onAttack}>⚔</button>
+        <button className="sabong-action-btn" style={actionBtn} onPointerDown={onJump}>↑</button>
+        <button className="sabong-action-btn-small" style={actionBtnSmall} onPointerDown={onCam}>cam</button>
       </div>
     </>
   )
