@@ -14,6 +14,11 @@ export class Bird extends Schema {
   @type("boolean") alive = true;
   @type("number") lastPeckAt = 0;
   @type("number") spawnIndex = 0; // remembered across rematches
+  // Bot bookkeeping (server-only AI). isBot flips the client renderer to
+  // show a bot badge on the nametag; everything else (movement, combat) flows
+  // through the same Bird state as human players.
+  @type("boolean") isBot = false;
+  @type("string") botDifficulty = ""; // "easy" | "normal" | "hard" — empty for humans
   // Loadout & buffs (Date.now() ms timestamps)
   @type("string") weapon = "beak";
   @type("number") weaponAmmo = -1; // -1 = unlimited
@@ -132,6 +137,29 @@ const MAX_ACTIVE_ITEMS = 5;
 const PICKUP_RADIUS = 1.6;
 const HIT_RADIUS = 0.6; // ranged ray vs bird capsule (approx as a 0.6m radius column)
 
+// === Bot AI ===
+// Bots run server-side on a separate fast tick. Difficulty controls movement
+// speed, reaction delay (ms between "saw enemy" and first peck), and how
+// tight the aim cone needs to be before swinging.
+type BotDifficulty = "easy" | "normal" | "hard";
+interface BotTuning {
+  moveSpeed: number;          // m/s walking toward target
+  reactionMs: number;         // delay after acquiring a new target before pecking
+  peckCooldownMul: number;    // multiplier on the base weapon cooldown
+  aimSlack: number;           // extra cone tolerance — easier bots swing wildly
+  pickupChance: number;       // 0..1 probability per tick of going for a nearby item
+}
+const BOT_TUNING: Record<BotDifficulty, BotTuning> = {
+  easy:   { moveSpeed: 2.5, reactionMs: 600, peckCooldownMul: 1.6, aimSlack: 0.4, pickupChance: 0.1 },
+  normal: { moveSpeed: 3.5, reactionMs: 250, peckCooldownMul: 1.0, aimSlack: 0.2, pickupChance: 0.4 },
+  hard:   { moveSpeed: 4.5, reactionMs: 80,  peckCooldownMul: 0.9, aimSlack: 0.05, pickupChance: 0.8 },
+};
+const BOT_NAMES = [
+  "Clucky", "Beak Bot", "Drumstick", "Featherweight", "Nugget",
+  "Cluck Norris", "Henrietta", "Pecky", "Talon", "Eggbert",
+];
+const BOT_TICK_MS = 100; // 10Hz AI update — fast enough to feel reactive, cheap on CPU
+
 export class SabongRoom extends Room<SabongState> {
   maxClients = ROYALE_MAX;
   // Auto-start handle — every join while in 'waiting' resets this to give
@@ -139,9 +167,24 @@ export class SabongRoom extends Room<SabongState> {
   private startTimer: ReturnType<typeof setTimeout> | null = null;
   private static START_DELAY_MS = 5000;
 
-  onCreate() {
+  // Bot bookkeeping — keyed by the synthetic bird id we assigned at spawn.
+  // Tracks the in-flight target + when the bot first "saw" them, so we can
+  // apply a reaction delay before swinging on easier difficulties.
+  private bots = new Map<string, { difficulty: BotDifficulty; targetId: string | null; firstSawTargetAt: number }>();
+  private botCounter = 0;
+  private botTickHandle: ReturnType<typeof setInterval> | null = null;
+
+  onCreate(options?: { bots?: { count?: number; difficulty?: BotDifficulty } }) {
     this.setState(new SabongState());
     this.state.code = this.roomId;
+
+    // Spawn requested bots immediately so the room arrives "populated". maxClients
+    // still applies to humans; bots take the remaining slots up to ROYALE_MAX.
+    const wantBots = Math.max(0, Math.min(ROYALE_MAX - 1, options?.bots?.count ?? 0));
+    const diff: BotDifficulty = (options?.bots?.difficulty as BotDifficulty) ?? "normal";
+    for (let i = 0; i < wantBots; i++) this.spawnBot(diff);
+
+    this.botTickHandle = setInterval(() => this.botTick(), BOT_TICK_MS);
 
     this.onMessage("pose", (client, p: { x: number; y: number; z: number; ry: number }) => {
       const b = this.state.birds.get(client.sessionId);
@@ -188,9 +231,10 @@ export class SabongRoom extends Room<SabongState> {
       if (this.state.phase !== "over") return;
       if (this.state.rematchReady.includes(client.sessionId)) return;
       this.state.rematchReady.push(client.sessionId);
+      // Bots are always ready — they don't have a Client to send "rematch"
+      // from, so we auto-mark them so the human(s) don't wait forever.
+      this.autoReadyBots();
       // Royale: rematch starts once everyone still in the room has clicked.
-      // With more than 2 birds we'd otherwise stall forever waiting on the
-      // person who closed their tab — leave the room and they auto-drop.
       if (this.state.rematchReady.length >= this.state.birds.size && this.state.birds.size >= 2) {
         this.resetMatch();
       }
@@ -259,16 +303,23 @@ export class SabongRoom extends Room<SabongState> {
   }
 
   private handleMelee(client: Client) {
-    if (this.state.phase !== "fighting") return;
     const me = this.state.birds.get(client.sessionId);
-    if (!me || !me.alive) return;
+    if (me) this.resolveMelee(me, 0);
+  }
+
+  // Shared melee resolution — humans hit this via the "peck" message, bots
+  // call it directly from their AI tick. `aimSlack` widens the cone for
+  // easier-difficulty bots so they don't need perfect facing.
+  private resolveMelee(me: Bird, aimSlack: number) {
+    if (this.state.phase !== "fighting") return;
+    if (!me.alive) return;
     const w = WEAPONS[me.weapon] ?? WEAPONS.beak;
     if (w.ranged) return; // wrong message type for this weapon
     const now = Date.now();
     if (now - me.lastPeckAt < w.cooldownMs) return;
     me.lastPeckAt = now;
 
-    const halfCone = w.halfCone ?? Math.PI / 3;
+    const halfCone = (w.halfCone ?? Math.PI / 3) + aimSlack;
     let hit: Bird | null = null;
     for (const other of this.state.birds.values()) {
       if (other.id === me.id || !other.alive) continue;
@@ -286,7 +337,6 @@ export class SabongRoom extends Room<SabongState> {
     if (hit) {
       const target = hit as Bird;
       if (target.immortalUntil > now) {
-        // Hit registered but no damage — still tell clients so the impact effect plays.
         this.broadcast("peckHit", { from: me.id, to: target.id, hp: target.hp, weapon: me.weapon, blocked: true });
       } else {
         const dmg = w.damage * (me.dmgMulUntil > now ? 2 : 1);
@@ -301,17 +351,23 @@ export class SabongRoom extends Room<SabongState> {
   }
 
   private handleShoot(client: Client, p: { dx: number; dz: number }) {
-    if (this.state.phase !== "fighting") return;
     const me = this.state.birds.get(client.sessionId);
-    if (!me || !me.alive) return;
+    if (me) this.resolveShoot(me, p.dx, p.dz);
+  }
+
+  // Shared shoot resolution — humans send "shoot" with aim; bots call this
+  // directly with a pre-aimed direction at their target.
+  private resolveShoot(me: Bird, dx: number, dz: number) {
+    if (this.state.phase !== "fighting") return;
+    if (!me.alive) return;
     const w = WEAPONS[me.weapon] ?? WEAPONS.beak;
     if (!w.ranged) return;
     const now = Date.now();
     if (now - me.lastPeckAt < w.cooldownMs) return;
     me.lastPeckAt = now;
     // Normalize aim
-    const n = Math.hypot(p.dx, p.dz) || 1;
-    const ax = p.dx / n, az = p.dz / n;
+    const n = Math.hypot(dx, dz) || 1;
+    const ax = dx / n, az = dz / n;
 
     // Ray from me, find closest opponent hit within range.
     let best: { other: Bird; t: number } | null = null;
@@ -443,6 +499,134 @@ export class SabongRoom extends Room<SabongState> {
     if (this.state.phase === "fighting") this.checkWinner();
   }
 
+  // === Bots ===
+
+  onDispose() {
+    if (this.botTickHandle) { clearInterval(this.botTickHandle); this.botTickHandle = null; }
+  }
+
+  private autoReadyBots() {
+    for (const botId of this.bots.keys()) {
+      if (!this.state.rematchReady.includes(botId)) this.state.rematchReady.push(botId);
+    }
+  }
+
+  private spawnBot(difficulty: BotDifficulty) {
+    const usedSlots = new Set<number>();
+    for (const other of this.state.birds.values()) usedSlots.add(other.spawnIndex);
+    let slot = 0;
+    while (slot < SPAWNS.length && usedSlots.has(slot)) slot++;
+    if (slot >= SPAWNS.length) return; // no free spawn rings — arena is full
+    const spawn = SPAWNS[slot];
+    const id = `bot_${this.botCounter++}`;
+    const b = new Bird();
+    b.id = id;
+    b.name = `🤖 ${BOT_NAMES[slot % BOT_NAMES.length]}`;
+    b.color = spawn.color;
+    b.spawnIndex = slot;
+    b.x = spawn.x; b.z = spawn.z; b.ry = spawn.ry;
+    b.isBot = true;
+    b.botDifficulty = difficulty;
+    this.state.birds.set(id, b);
+    this.bots.set(id, { difficulty, targetId: null, firstSawTargetAt: 0 });
+  }
+
+  // Bot AI — runs at 10Hz. Walks each bot toward its nearest live opponent and
+  // pecks when in range. Difficulty controls movement speed, the reaction
+  // delay before the first peck on a new target, and how loose the aim cone
+  // can be. Pickups: a tunable probability per tick of walking toward a
+  // nearby item instead of the target — keeps fights varied across rounds.
+  private botTick() {
+    if (this.state.phase !== "fighting") return;
+    const now = Date.now();
+    const dt = BOT_TICK_MS / 1000;
+    for (const [botId, ctx] of this.bots) {
+      const me = this.state.birds.get(botId);
+      if (!me || !me.alive) continue;
+      const tuning = BOT_TUNING[ctx.difficulty];
+
+      // Find nearest live opponent (skip other bots only if there's a human;
+      // otherwise bots will happily fight each other so the match resolves).
+      let humansAlive = 0;
+      for (const o of this.state.birds.values()) if (o.alive && !o.isBot) humansAlive++;
+      let target: Bird | null = null;
+      let bestDist = Infinity;
+      for (const other of this.state.birds.values()) {
+        if (other.id === me.id || !other.alive) continue;
+        if (humansAlive > 0 && other.isBot) continue;
+        const d = Math.hypot(other.x - me.x, other.z - me.z);
+        if (d < bestDist) { bestDist = d; target = other; }
+      }
+
+      if (!target) continue;
+      if (ctx.targetId !== target.id) {
+        ctx.targetId = target.id;
+        ctx.firstSawTargetAt = now;
+      }
+
+      // Optional pickup detour — bias toward the closest item if RNG allows.
+      let goalX = target.x;
+      let goalZ = target.z;
+      if (Math.random() < tuning.pickupChance * dt) {
+        let nearestItem: ItemDrop | null = null;
+        let nearestItemDist = Infinity;
+        for (const it of this.state.items.values()) {
+          const d = Math.hypot(it.x - me.x, it.z - me.z);
+          if (d < nearestItemDist && d < 6) { nearestItemDist = d; nearestItem = it; }
+        }
+        if (nearestItem) { goalX = nearestItem.x; goalZ = nearestItem.z; }
+      }
+
+      // Walk toward goal.
+      const dx = goalX - me.x;
+      const dz = goalZ - me.z;
+      const dist = Math.hypot(dx, dz) || 1;
+      const step = tuning.moveSpeed * (me.hasteUntil > now ? 1.4 : 1) * dt;
+      const w = WEAPONS[me.weapon] ?? WEAPONS.beak;
+      const stopDist = (w.range ?? 2) * 0.7; // close enough to swing without crowding
+      if (dist > stopDist) {
+        me.x += (dx / dist) * Math.min(step, dist - stopDist);
+        me.z += (dz / dist) * Math.min(step, dist - stopDist);
+      }
+      // Clamp to arena.
+      const rr = Math.hypot(me.x, me.z);
+      const maxR = ARENA_R - 0.5;
+      if (rr > maxR) { me.x *= maxR / rr; me.z *= maxR / rr; }
+
+      // Face the target.
+      const tdx = target.x - me.x;
+      const tdz = target.z - me.z;
+      me.ry = Math.atan2(-tdx, -tdz);
+
+      // Auto-pickup any item we walked over (same radius as humans).
+      for (const [iid, it] of this.state.items) {
+        if (Math.hypot(it.x - me.x, it.z - me.z) <= PICKUP_RADIUS) {
+          this.applyItem(me, it.kind);
+          this.state.items.delete(iid);
+          this.broadcast("pickup", { by: me.id, kind: it.kind });
+          break;
+        }
+      }
+
+      // Peck if in range, past the reaction window, and within cooldown.
+      const dToTarget = Math.hypot(target.x - me.x, target.z - me.z);
+      if (dToTarget <= (w.range ?? 2) && now - ctx.firstSawTargetAt >= tuning.reactionMs) {
+        // Apply difficulty-tuned cooldown stretch.
+        const stretchedCooldown = w.cooldownMs * tuning.peckCooldownMul;
+        if (now - me.lastPeckAt >= stretchedCooldown) {
+          if (w.ranged) {
+            // If a bot picked up a ranged weapon, fire straight at the target.
+            const dxAim = target.x - me.x, dzAim = target.z - me.z;
+            const n = Math.hypot(dxAim, dzAim) || 1;
+            this.resolveShoot(me, dxAim / n, dzAim / n);
+          } else {
+            this.resolveMelee(me, tuning.aimSlack);
+          }
+        }
+      }
+    }
+  }
+
   private resetMatch() {
     this.state.winner = "";
     this.state.phase = "waiting";
@@ -454,6 +638,8 @@ export class SabongRoom extends Room<SabongState> {
     for (const [id] of this.state.items) ids.push(id);
     for (const id of ids) this.state.items.delete(id);
     this.lastDropAt = Date.now(); // first drop ~DROP_INTERVAL_MS into the match
+    // Clear bot AI state — last round's target/timing shouldn't bleed into this one.
+    for (const ctx of this.bots.values()) { ctx.targetId = null; ctx.firstSawTargetAt = 0; }
     for (const b of this.state.birds.values()) {
       const spawn = SPAWNS[b.spawnIndex] ?? SPAWNS[0];
       b.x = spawn.x;

@@ -31,6 +31,10 @@ declare global {
           settings: CrazyGameSettings
           addSettingsChangeListener: (cb: (s: CrazyGameSettings) => void) => void
           removeSettingsChangeListener: (cb: (s: CrazyGameSettings) => void) => void
+          updateRoom: (params: { roomId: string; isJoinable?: boolean; inviteParams?: InviteParams }) => void
+          leftRoom: () => void
+          addJoinRoomListener: (cb: (params: { roomId: string; inviteParams?: InviteParams }) => void) => void
+          removeJoinRoomListener: (cb: (params: { roomId: string; inviteParams?: InviteParams }) => void) => void
         }
         user: {
           isUserAccountAvailable: boolean
@@ -138,6 +142,45 @@ export function onCrazyInviteParams(cb: (p: InviteParams) => void): () => void {
   }
 }
 
+// === Multiplayer room state (CG-side) ===
+// Tells CrazyGames which room the player is in. Required for their friend-
+// invite / party flows: their portal needs the room id + invite params to
+// pull other players in. Call when joining, again when room state changes
+// (e.g. became unjoinable mid-match), and crazyLeaveRoom() when leaving.
+export function crazyUpdateRoom(roomId: string, mode?: string, isJoinable = true) {
+  safe(() => sdk()!.game.updateRoom({
+    roomId,
+    isJoinable,
+    inviteParams: { roomCode: roomId, mode },
+  }))
+}
+
+export function crazyLeaveRoom() {
+  safe(() => sdk()!.game.leftRoom())
+}
+
+// CG portal can ask the game to join a room (e.g. friend joined via the
+// CrazyGames party UI while we were idle). Different from the invite-link
+// listener: that fires when the URL params change, this fires when CG
+// actively pushes us into a room without a navigation.
+export function onCrazyJoinRoom(cb: (p: { roomId: string; mode?: string }) => void): () => void {
+  const s = sdk()
+  if (!s) return () => {}
+  const wrapped = (p: { roomId: string; inviteParams?: InviteParams }) => {
+    try { cb({ roomId: p.roomId, mode: p.inviteParams?.mode }) } catch {}
+  }
+  let cancelled = false
+  let attached = false
+  initCrazyGames().then(() => {
+    if (cancelled || !ready) return
+    try { s.game.addJoinRoomListener(wrapped); attached = true } catch {}
+  })
+  return () => {
+    cancelled = true
+    if (attached) { try { s.game.removeJoinRoomListener(wrapped) } catch {} }
+  }
+}
+
 // === Audio mute sync ===
 // CrazyGames lets users mute games via their site-wide UI. The SDK exposes
 // the current value at `settings.muteAudio` and notifies us when it flips.
@@ -205,5 +248,29 @@ export function crazyRequestMidgameAd(onDone?: () => void) {
     })
   } catch {
     onDone?.()
+  }
+}
+
+// === Room data update (safe, no-op outside embed) ===
+// The CrazyGames SDK exposes platform room metadata APIs in some builds.
+// We try a few common method names safely so the call is a no-op outside
+// the embed or if the platform method name differs.
+export function crazyUpdateRoomData(data: Record<string, any>) {
+  const s = sdk()
+  if (!ready || !s) return
+  try {
+    const game: any = s.game
+    const tryNames = ['updateRoomData', 'setRoomData', 'setRoomMeta', 'updateRoom']
+    for (const n of tryNames) {
+      if (typeof game[n] === 'function') {
+        try { game[n](data); return } catch {}
+      }
+    }
+    // fallback: some SDKs expose a generic 'room' object
+    if (game.room && typeof game.room.update === 'function') {
+      try { game.room.update(data); return } catch {}
+    }
+  } catch {
+    // swallow — non-fatal
   }
 }

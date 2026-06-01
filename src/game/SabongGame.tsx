@@ -7,7 +7,7 @@ import { SabongArena, ARENA_RADIUS } from './SabongArena'
 import { ErrorBoundary } from './ErrorBoundary'
 import { useMultiplayer } from './multiplayer'
 import { getRoom, sendRoomMessage, leaveRoom } from './net'
-import { playMusic, stopMusic, playSfx, isMuted, toggleMuted, subscribeAudio } from './sfx'
+import { playMusic, stopMusic, playSfx, isMuted, toggleMuted, subscribeAudio, setMusicVolume, setSfxVolume, getMusicVolume, getSfxVolume } from './sfx'
 import { crazyRequestMidgameAd, crazyMakeInviteLink, crazyHappytime } from './crazygames'
 
 // Sabong = top-down arena fight, but rendered in the same 3D environment as
@@ -229,11 +229,24 @@ export function SabongGame({ onExit }: { onExit?: () => void } = {}) {
 
   useEffect(() => () => { /* leave on unmount */ leaveRoom(); stopMusic() }, [])
 
-  const me = view.birds.find((b) => b.id === myId)
+  // Solo practice mode: the player hit "Skip · practice solo" — there's no
+  // Colyseus room, so no birds in state. Synthesize a local-only bird so the
+  // 3rd-person model renders and the player can walk the arena. Movement is
+  // already client-driven (posRef) so nothing else is needed.
+  const SOLO_ID = '__solo__'
+  const isSolo = !getRoom()
+  const me = isSolo
+    ? ({
+        id: SOLO_ID, name: useMultiplayer.getState().myName || 'You',
+        color: '#facc15', x: 0, y: ROOSTER_EYE, z: 0, ry: 0,
+        hp: 100, maxHp: 100, alive: true, weapon: 'beak', weaponAmmo: -1,
+        dmgMulUntil: 0, hasteUntil: 0, regenUntil: 0, immortalUntil: 0,
+      } satisfies BirdView)
+    : view.birds.find((b) => b.id === myId)
   // Royale: all non-me birds. Sort alive-first then by HP descending so the
   // scoreboard reads as a leaderboard.
   const opponents = view.birds
-    .filter((b) => b.id !== myId)
+    .filter((b) => b.id !== myId && b.id !== SOLO_ID)
     .slice()
     .sort((a, b) => (Number(b.alive) - Number(a.alive)) || (b.hp - a.hp))
 
@@ -263,7 +276,7 @@ export function SabongGame({ onExit }: { onExit?: () => void } = {}) {
         <Physics gravity={[0, -9.81, 0]}>
           <ErrorBoundary label="SabongArena"><SabongArena /></ErrorBoundary>
           <ErrorBoundary label="RoosterControls">
-            <RoosterController phase={view.phase} alive={me?.alive ?? true} myBird={me} camMode={camMode} items={view.items} />
+            <RoosterController phase={isSolo ? 'fighting' : view.phase} alive={me?.alive ?? true} myBird={me} camMode={camMode} items={view.items} />
           </ErrorBoundary>
           <ErrorBoundary label="RemoteRoosters" recoverable>
             <RemoteRoosters birds={view.birds.filter((b) => b.id !== myId)} />
@@ -1184,7 +1197,7 @@ function SabongHUDStyles() {
         .sabong-scoreboard-row { font-size: 10px !important; gap: 4px !important; }
 
         .sabong-invite-chip { top: 62px !important; right: 8px !important; padding: 4px 8px !important; gap: 6px !important; }
-        .sabong-mute-chip { top: 8px !important; right: 8px !important; padding: 4px 8px !important; font-size: 12px !important; }
+        .sabong-mute-chip { top: 8px !important; left: 8px !important; right: auto !important; padding: 4px 8px !important; font-size: 12px !important; }
         .sabong-invite-chip code { font-size: 11px !important; letter-spacing: 1px !important; }
         .sabong-invite-btn { padding: 3px 6px !important; font-size: 10px !important; }
 
@@ -1513,23 +1526,56 @@ export function MuteChip() {
     return () => { unsub() }
   }, [])
   const muted = isMuted()
+  const [musicVol, setMusicVol] = useState<number>(() => getMusicVolume())
+  const [sfxVol, setSfxVol] = useState<number>(() => getSfxVolume())
+
+  const onMusicChange = (v: number) => { setMusicVol(v); setMusicVolume(v) }
+  const onSfxChange = (v: number) => { setSfxVol(v); setSfxVolume(v) }
+
   return (
-    <button
-      onClick={(e) => { e.stopPropagation(); toggleMuted() }}
-      className="sabong-mute-chip"
-      style={muteChip}
-      title={muted ? 'Unmute audio' : 'Mute audio'}
-    >
-      {muted ? '🔇' : '🔊'}
-    </button>
+    <div style={{ ...muteChip, pointerEvents: 'auto', display: 'flex', alignItems: 'center', gap: 8 }}>
+      <button
+        onClick={(e) => { e.stopPropagation(); toggleMuted() }}
+        className="sabong-mute-chip"
+        title={muted ? 'Unmute audio' : 'Mute audio'}
+        style={{ background: 'transparent', border: 'none', color: '#fef3c7', cursor: 'pointer', fontSize: 16 }}
+      >
+        {muted ? '🔇' : '🔊'}
+      </button>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 4, minWidth: 140 }}>
+        <input
+          aria-label="music volume"
+          type="range"
+          min={0}
+          max={1}
+          step={0.01}
+          value={musicVol}
+          onChange={(e) => onMusicChange(parseFloat(e.currentTarget.value))}
+          style={{ width: '100%' }}
+        />
+        <input
+          aria-label="sfx volume"
+          type="range"
+          min={0}
+          max={1}
+          step={0.01}
+          value={sfxVol}
+          onChange={(e) => onSfxChange(parseFloat(e.currentTarget.value))}
+          style={{ width: '100%' }}
+        />
+      </div>
+    </div>
   )
 }
 
 const muteChip: React.CSSProperties = {
-  position: 'fixed', top: 16, right: 96, zIndex: 46,
+  // Top-left — keeps it clear of the cam chip (top-right) and the room invite
+  // chip (also top-right). The audio slider widens the chip enough that any
+  // shared corner causes overlap on smaller viewports.
+  position: 'fixed', top: 12, left: 14, zIndex: 46,
   background: 'rgba(12,12,12,0.85)', color: '#fef3c7',
-  border: '2px solid rgba(255,255,255,0.25)', padding: '6px 10px',
-  fontFamily: '"JetBrains Mono", monospace', fontSize: 14,
+  border: '2px solid rgba(255,255,255,0.12)', padding: '6px 8px',
+  fontFamily: '"JetBrains Mono", monospace', fontSize: 13,
   cursor: 'pointer',
 }
 

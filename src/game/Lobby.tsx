@@ -51,6 +51,16 @@ export function Lobby({ onEnter }: Props) {
   const [joinCode, setJoinCode] = useState('')
   const [busy, setBusy] = useState<'quick' | 'create' | 'join' | null>(null)
   const [err, setErr] = useState<string | null>(null)
+  // Bot config — only used when creating a private sabong room. Persisted so
+  // a player who likes 3 hard bots doesn't reconfigure every session.
+  const [botCount, setBotCount] = useState<number>(() => {
+    try { return Math.max(0, Math.min(9, parseInt(localStorage.getItem('botCount') || '0'))) } catch { return 0 }
+  })
+  const [botDifficulty, setBotDifficulty] = useState<'easy' | 'normal' | 'hard'>(() => {
+    try { return (localStorage.getItem('botDifficulty') as 'easy'|'normal'|'hard') || 'normal' } catch { return 'normal' }
+  })
+  useEffect(() => { try { localStorage.setItem('botCount', String(botCount)) } catch {} }, [botCount])
+  useEffect(() => { try { localStorage.setItem('botDifficulty', botDifficulty) } catch {} }, [botDifficulty])
 
   useEffect(() => { try { localStorage.setItem('mpMode', mode) } catch {} }, [mode])
 
@@ -130,7 +140,9 @@ export function Lobby({ onEnter }: Props) {
     if (action === 'quick') {
       res = await quickplay(name, mode); resolvedCode = res.code
     } else if (action === 'create') {
-      res = await createRoom(name, mode); resolvedCode = res.code
+      // Only sabong supports bots server-side; rage just ignores the option.
+      const bots = mode === 'sabong' && botCount > 0 ? { count: botCount, difficulty: botDifficulty } : undefined
+      res = await createRoom(name, mode, bots); resolvedCode = res.code
     } else {
       const c = joinCode.trim()
       res = await joinRoom(c, name, mode); resolvedCode = c
@@ -179,6 +191,43 @@ export function Lobby({ onEnter }: Props) {
           ))}
         </div>
 
+        {mode === 'sabong' && (
+          <div style={botPanel}>
+            <div style={{ ...label, marginBottom: 8 }}>
+              Bots in private room <span style={{ opacity: 0.5 }}>(only when you Create)</span>
+            </div>
+            <div style={botRow}>
+              <span style={{ fontSize: 12, minWidth: 70 }}>Count: <b style={{ color: '#facc15' }}>{botCount}</b></span>
+              <input
+                type="range"
+                min={0}
+                max={9}
+                step={1}
+                value={botCount}
+                onChange={(e) => setBotCount(parseInt(e.target.value))}
+                style={{ flex: 1 }}
+                aria-label="Bot count"
+              />
+            </div>
+            <div style={{ ...botRow, marginTop: 8 }}>
+              <span style={{ fontSize: 12, minWidth: 70 }}>Difficulty:</span>
+              {(['easy', 'normal', 'hard'] as const).map((d) => (
+                <button
+                  key={d}
+                  onClick={() => setBotDifficulty(d)}
+                  style={{
+                    ...diffBtn,
+                    borderColor: botDifficulty === d ? '#facc15' : 'rgba(255,255,255,0.2)',
+                    color: botDifficulty === d ? '#facc15' : '#f5f1e8',
+                  }}
+                >
+                  {d}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
         <div style={ctaRow}>
           <button onClick={() => go('quick')} disabled={!!busy} style={primaryBtn}>
             {busy === 'quick' ? 'Finding room…' : '⚡ Quickplay'}
@@ -212,6 +261,10 @@ export function Lobby({ onEnter }: Props) {
 
         {err && <div style={errBox}>{err}</div>}
 
+        {err && <div style={{ height: 8 }} />}
+        <div style={{ marginTop: 12, fontSize: 12, opacity: 0.75, textAlign: 'center' }}>
+          By playing you agree to our <a href="/terms" style={{ color: '#facc15' }}>Terms</a> and <a href="/privacy" style={{ color: '#facc15' }}>Privacy Policy</a>.
+        </div>
         <MobileNotice />
       </div>
     </div>
@@ -265,6 +318,18 @@ const title: React.CSSProperties = {
 }
 const sub: React.CSSProperties = { opacity: 0.7, fontSize: 13, marginBottom: 22 }
 const label: React.CSSProperties = { fontSize: 11, opacity: 0.7, letterSpacing: 2, textTransform: 'uppercase' }
+const botPanel: React.CSSProperties = {
+  marginTop: 18, padding: '12px 14px',
+  background: 'rgba(250,204,21,0.06)',
+  border: '1px dashed rgba(250,204,21,0.4)',
+}
+const botRow: React.CSSProperties = { display: 'flex', alignItems: 'center', gap: 10 }
+const diffBtn: React.CSSProperties = {
+  flex: 1, padding: '6px 8px',
+  background: 'transparent', border: '1px solid',
+  fontFamily: 'inherit', fontSize: 12, letterSpacing: 1, textTransform: 'uppercase',
+  cursor: 'pointer',
+}
 const input: React.CSSProperties = {
   marginTop: 6, width: '100%', padding: '10px 12px',
   background: 'rgba(255,255,255,0.05)', color: '#f5f1e8',

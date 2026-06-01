@@ -366,6 +366,9 @@ function LandingPage({ onLogin, onSignup }: { onLogin: () => void; onSignup: () 
           <span>Chrome / desktop · webGL required</span>
           <span>Made in Manila · not actually breaking anything</span>
         </div>
+        <div style={{ marginTop: 12, fontSize: 12, opacity: 0.75 }}>
+          By playing you agree to our <a href="/terms" style={{ color: '#facc15' }}>Terms</a> and <a href="/privacy" style={{ color: '#facc15' }}>Privacy Policy</a>.
+        </div>
       </div>
 
       {/* BOTTOM TICKER (opposite direction) */}

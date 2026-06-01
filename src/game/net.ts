@@ -1,5 +1,6 @@
 import { Client, Room } from 'colyseus.js'
 import { useMultiplayer, type RemotePlayer } from './multiplayer'
+import { crazyUpdateRoomData } from './crazygames'
 import { useGame } from './store'
 import { useWorldSplats } from './WorldSplats'
 import type { ThrowSpec } from './Projectiles'
@@ -55,6 +56,10 @@ function bindRoom(r: Room) {
       })
     }
     useMultiplayer.setState({ players: list })
+    try {
+      // Tell CrazyGames platform about the room (harmless no-op off-platform).
+      crazyUpdateRoomData({ roomCode: r.roomId, playerCount: list.length + 1, mode: useMultiplayer.getState().mode })
+    } catch {}
   }
 
   r.onStateChange(syncPlayers)
@@ -98,9 +103,19 @@ function bindRoom(r: Room) {
   })
 }
 
-export async function createRoom(name: string, mode: string = DEFAULT_MODE): Promise<{ ok: boolean; code?: string; error?: string }> {
+export interface BotConfig { count: number; difficulty: 'easy' | 'normal' | 'hard' }
+
+export async function createRoom(
+  name: string,
+  mode: string = DEFAULT_MODE,
+  bots?: BotConfig,
+): Promise<{ ok: boolean; code?: string; error?: string }> {
   try {
-    const r = await getClient().create(mode, { name, mode })
+    // Only the sabong mode honors the `bots` option — pass-through is fine
+    // for other modes (server just ignores unknown options).
+    const opts: Record<string, unknown> = { name, mode }
+    if (bots && bots.count > 0) opts.bots = bots
+    const r = await getClient().create(mode, opts)
     useMultiplayer.setState({ mode })
     bindRoom(r)
     return { ok: true, code: r.roomId }
