@@ -38,6 +38,13 @@ export class SabongState extends Schema {
   @type({ map: Bird }) birds = new MapSchema<Bird>();
   @type({ map: ItemDrop }) items = new MapSchema<ItemDrop>();
   @type(["string"]) rematchReady = new ArraySchema<string>();
+  // Order in which birds were eliminated this match. Used by the client to
+  // compute placement on the defeat screen ("Finished #4 of 8"). The winner
+  // is *not* in this list — they survived. Reset at the start of each match.
+  @type(["string"]) eliminationOrder = new ArraySchema<string>();
+  // Total players who took part in this match. Frozen at fight start so the
+  // "X of Y" label doesn't shift when a defeated player closes their tab.
+  @type("number") matchSize = 0;
 }
 
 // Yaw convention matches the client: ry such that a group with rotation.y = ry
@@ -285,7 +292,7 @@ export class SabongRoom extends Room<SabongState> {
         const dmg = w.damage * (me.dmgMulUntil > now ? 2 : 1);
         target.hp = Math.max(0, target.hp - dmg);
         this.broadcast("peckHit", { from: me.id, to: target.id, hp: target.hp, weapon: me.weapon });
-        if (target.hp <= 0) { target.alive = false; this.checkWinner(); }
+        if (target.hp <= 0) { target.alive = false; this.recordElimination(target.id); this.checkWinner(); }
       }
     } else {
       this.broadcast("peckMiss", { from: me.id, weapon: me.weapon });
@@ -331,7 +338,7 @@ export class SabongRoom extends Room<SabongState> {
         const dmg = w.damage * (me.dmgMulUntil > now ? 2 : 1);
         target.hp = Math.max(0, target.hp - dmg);
         this.broadcast("shotHit", { from: me.id, to: target.id, hp: target.hp, weapon: me.weapon, ex, ez });
-        if (target.hp <= 0) { target.alive = false; this.checkWinner(); }
+        if (target.hp <= 0) { target.alive = false; this.recordElimination(target.id); this.checkWinner(); }
       }
     } else {
       this.broadcast("shotMiss", { from: me.id, weapon: me.weapon, ex, ez });
@@ -400,14 +407,29 @@ export class SabongRoom extends Room<SabongState> {
         this.startTimer = null;
         if (this.state.birds.size >= 2 && this.state.phase === "waiting") {
           this.state.phase = "fighting";
+          // Lock in the player count for placement labels.
+          this.state.matchSize = this.state.birds.size;
         }
       }, SabongRoom.START_DELAY_MS);
     }
   }
 
+  // Append a bird id to the elimination order, skipping dupes (defence in
+  // depth — a hit that crosses 0 HP twice in the same frame shouldn't push
+  // twice).
+  private recordElimination(id: string) {
+    if (this.state.eliminationOrder.indexOf(id) >= 0) return;
+    this.state.eliminationOrder.push(id);
+  }
+
   onLeave(client: Client) {
     const b = this.state.birds.get(client.sessionId);
-    if (b) b.alive = false;
+    if (b) {
+      // Closing the tab during a fight counts as an elimination so the
+      // placement math stays consistent.
+      if (b.alive && this.state.phase === "fighting") this.recordElimination(b.id);
+      b.alive = false;
+    }
     this.state.birds.delete(client.sessionId);
     // Also drop any pending rematch vote from the leaver.
     const idx = this.state.rematchReady.indexOf(client.sessionId);
@@ -424,7 +446,9 @@ export class SabongRoom extends Room<SabongState> {
   private resetMatch() {
     this.state.winner = "";
     this.state.phase = "waiting";
+    this.state.matchSize = 0;
     while (this.state.rematchReady.length > 0) this.state.rematchReady.pop();
+    while (this.state.eliminationOrder.length > 0) this.state.eliminationOrder.pop();
     // Wipe items so the next match starts clean.
     const ids: string[] = [];
     for (const [id] of this.state.items) ids.push(id);
@@ -452,6 +476,7 @@ export class SabongRoom extends Room<SabongState> {
       this.startTimer = null;
       if (this.state.birds.size >= 2 && this.state.phase === "waiting") {
         this.state.phase = "fighting";
+        this.state.matchSize = this.state.birds.size;
       }
     }, SabongRoom.START_DELAY_MS);
   }

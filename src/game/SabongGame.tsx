@@ -55,6 +55,10 @@ interface RoomView {
   birds: BirdView[]
   items: ItemView[]
   rematchReady: string[]
+  // Order birds were eliminated this match. First entry died first.
+  eliminationOrder: string[]
+  // Total players who started this match (frozen at fight start).
+  matchSize: number
 }
 
 // Client mirror of the server WEAPONS table — used to decide whether to send
@@ -78,7 +82,7 @@ export const CLIENT_ITEMS: Record<string, { label: string; color: string; emoji:
 
 function readRoomState(): RoomView {
   const r = getRoom()
-  if (!r) return { phase: 'waiting', winner: '', birds: [], items: [], rematchReady: [] }
+  if (!r) return { phase: 'waiting', winner: '', birds: [], items: [], rematchReady: [], eliminationOrder: [], matchSize: 0 }
   const s: any = r.state
   const birds: BirdView[] = []
   s?.birds?.forEach?.((b: any) => {
@@ -98,7 +102,14 @@ function readRoomState(): RoomView {
   s?.items?.forEach?.((i: any) => items.push({ id: i.id, kind: i.kind, x: i.x, z: i.z }))
   const rematchReady: string[] = []
   s?.rematchReady?.forEach?.((sid: string) => rematchReady.push(sid))
-  return { phase: s?.phase ?? 'waiting', winner: s?.winner ?? '', birds, items, rematchReady }
+  const eliminationOrder: string[] = []
+  s?.eliminationOrder?.forEach?.((sid: string) => eliminationOrder.push(sid))
+  return {
+    phase: s?.phase ?? 'waiting',
+    winner: s?.winner ?? '',
+    birds, items, rematchReady, eliminationOrder,
+    matchSize: s?.matchSize ?? 0,
+  }
 }
 
 // Peck animation timestamps, keyed by bird id. Mutated outside React so useFrame
@@ -1026,6 +1037,23 @@ function SabongHUD({
   const aliveOpponents = opponents.filter((o) => o.alive).length
   const totalPlayers = opponents.length + (me ? 1 : 0)
   const aliveTotal = aliveOpponents + (me?.alive ? 1 : 0)
+  // Royale placement: winner is #1; everyone else is ordered by *reverse*
+  // elimination — last killed = 2nd place, first killed = last. `matchSize`
+  // is what the server froze when the fight started, so the label stays
+  // honest even if defeated players close their tab afterward.
+  const matchSize = view.matchSize || (opponents.length + (me ? 1 : 0))
+  let myPlacement: number | null = null
+  if (view.phase === 'over' && myId) {
+    if (view.winner === myId) {
+      myPlacement = 1
+    } else {
+      const idx = view.eliminationOrder.indexOf(myId)
+      if (idx >= 0) {
+        // Eliminations recorded chronologically. Place = matchSize - idx.
+        myPlacement = Math.max(2, matchSize - idx)
+      }
+    }
+  }
   const [, force] = useState(0)
   useEffect(() => {
     const t = setInterval(() => force((n) => n + 1), 100)
@@ -1070,9 +1098,17 @@ function SabongHUD({
           <div className="sabong-over-stack" style={{ pointerEvents: 'auto', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 14 }}>
             <span className="sabong-over-title" style={{ fontFamily: 'Anton, sans-serif', fontSize: 44, letterSpacing: 2 }}>
               {view.winner === myId
-                ? (totalPlayers > 2 ? '🏆 LAST ROOSTER STANDING' : '🏆 YOU WIN')
+                ? (matchSize > 2 ? '🏆 LAST ROOSTER STANDING' : '🏆 YOU WIN')
                 : view.winner ? '☠ DEFEATED' : 'DRAW'}
             </span>
+            {/* Royale placement chip — shown for any 3+ player match where we
+                know our final position. */}
+            {matchSize >= 3 && myPlacement !== null && (
+              <span style={placementChip}>
+                {ordinal(myPlacement)} of {matchSize}
+                {myPlacement === 1 ? ' — undefeated' : myPlacement === 2 ? ' — runner up' : ''}
+              </span>
+            )}
             <div style={{ display: 'flex', gap: 10 }}>
               <button
                 onClick={(e) => { e.stopPropagation(); if (!iAmReady) onRematch() }}
@@ -1242,6 +1278,27 @@ const buffBar: React.CSSProperties = {
 }
 const buffBarFill: React.CSSProperties = {
   height: '100%', transition: 'width 0.18s',
+}
+
+// "1st", "2nd", "3rd", "4th"… for the placement chip.
+function ordinal(n: number): string {
+  const mod100 = n % 100
+  if (mod100 >= 11 && mod100 <= 13) return `${n}th`
+  switch (n % 10) {
+    case 1: return `${n}st`
+    case 2: return `${n}nd`
+    case 3: return `${n}rd`
+    default: return `${n}th`
+  }
+}
+
+const placementChip: React.CSSProperties = {
+  fontFamily: '"JetBrains Mono", monospace',
+  fontSize: 14, letterSpacing: 1,
+  padding: '4px 10px',
+  background: 'rgba(250,204,21,0.12)',
+  border: '1px solid #facc15',
+  color: '#fef3c7',
 }
 
 const rematchBtn: React.CSSProperties = {
