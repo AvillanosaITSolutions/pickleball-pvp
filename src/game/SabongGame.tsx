@@ -217,7 +217,12 @@ export function SabongGame({ onExit }: { onExit?: () => void } = {}) {
   useEffect(() => () => { /* leave on unmount */ leaveRoom(); stopMusic() }, [])
 
   const me = view.birds.find((b) => b.id === myId)
-  const opponent = view.birds.find((b) => b.id !== myId)
+  // Royale: all non-me birds. Sort alive-first then by HP descending so the
+  // scoreboard reads as a leaderboard.
+  const opponents = view.birds
+    .filter((b) => b.id !== myId)
+    .slice()
+    .sort((a, b) => (Number(b.alive) - Number(a.alive)) || (b.hp - a.hp))
 
   return (
     <>
@@ -260,7 +265,7 @@ export function SabongGame({ onExit }: { onExit?: () => void } = {}) {
       </Canvas>
 
       <SabongHUD
-        view={view} me={me} opponent={opponent}
+        view={view} me={me} opponents={opponents}
         peckFlash={peckFlash} hitFlash={hitFlash} myId={myId}
         camMode={camMode}
         onToggleCam={() => setCamMode((m) => m === 'first' ? 'third' : 'first')}
@@ -1008,15 +1013,19 @@ function NameTag({ name, hp }: { name: string; hp: number }) {
 }
 
 function SabongHUD({
-  view, me, opponent, peckFlash, hitFlash, myId, camMode, onToggleCam, onLeave, onRematch,
+  view, me, opponents, peckFlash, hitFlash, myId, camMode, onToggleCam, onLeave, onRematch,
 }: {
-  view: RoomView; me?: BirdView; opponent?: BirdView
+  view: RoomView; me?: BirdView; opponents: BirdView[]
   peckFlash: number; hitFlash: number; myId: string | null
   camMode: CameraMode; onToggleCam: () => void
   onLeave: () => void; onRematch: () => void
 }) {
   const iAmReady = !!myId && view.rematchReady.includes(myId)
-  const oppReady = !!opponent && view.rematchReady.includes(opponent.id)
+  // Royale: how many of the other players have hit Rematch.
+  const oppReadyCount = opponents.reduce((n, o) => n + (view.rematchReady.includes(o.id) ? 1 : 0), 0)
+  const aliveOpponents = opponents.filter((o) => o.alive).length
+  const totalPlayers = opponents.length + (me ? 1 : 0)
+  const aliveTotal = aliveOpponents + (me?.alive ? 1 : 0)
   const [, force] = useState(0)
   useEffect(() => {
     const t = setInterval(() => force((n) => n + 1), 100)
@@ -1038,12 +1047,20 @@ function SabongHUD({
       )}
       <div className="sabong-hud-shell" style={hudShell}>
         <BirdBadge bird={me} accent="#22c55e" label="YOU" peckGlow={peckGlow} />
-        <div className="sabong-vs" style={vs}>VS</div>
-        <BirdBadge bird={opponent} accent="#dc2626" label={opponent ? 'OPP' : 'WAITING…'} peckGlow={0} />
+        <div className="sabong-vs" style={vs}>
+          {view.phase === 'fighting' && totalPlayers > 1
+            ? <span title="alive / total">{aliveTotal}/{totalPlayers}</span>
+            : 'VS'}
+        </div>
+        <OpponentScoreboard opponents={opponents} myId={myId} />
       </div>
 
       <div className="sabong-center-hint" style={centerHint}>
-        {view.phase === 'waiting' && 'Waiting for opponent…'}
+        {view.phase === 'waiting' && (
+          opponents.length === 0
+            ? 'Waiting for players to join…'
+            : `${totalPlayers} ready — fight starts soon…`
+        )}
         {view.phase === 'fighting' && !touch && (
           <span style={{ opacity: 0.7 }}>
             Click to peck · WASD to move · Space to jump · V toggles view · Esc to free cursor
@@ -1052,7 +1069,9 @@ function SabongHUD({
         {view.phase === 'over' && (
           <div className="sabong-over-stack" style={{ pointerEvents: 'auto', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 14 }}>
             <span className="sabong-over-title" style={{ fontFamily: 'Anton, sans-serif', fontSize: 44, letterSpacing: 2 }}>
-              {view.winner === myId ? '🏆 YOU WIN' : view.winner ? '☠ DEFEATED' : 'DRAW'}
+              {view.winner === myId
+                ? (totalPlayers > 2 ? '🏆 LAST ROOSTER STANDING' : '🏆 YOU WIN')
+                : view.winner ? '☠ DEFEATED' : 'DRAW'}
             </span>
             <div style={{ display: 'flex', gap: 10 }}>
               <button
@@ -1062,16 +1081,18 @@ function SabongHUD({
                 style={iAmReady ? rematchBtnReady : rematchBtn}
               >
                 {iAmReady
-                  ? (oppReady ? 'Resetting…' : 'Waiting for opponent…')
+                  ? (opponents.length === 0
+                      ? 'Waiting…'
+                      : `Waiting (${oppReadyCount + 1}/${totalPlayers})`)
                   : '↻ Rematch'}
               </button>
               <button onClick={(e) => { e.stopPropagation(); onLeave() }} className="sabong-leave" style={leaveBtn}>
                 Leave
               </button>
             </div>
-            {oppReady && !iAmReady && (
+            {oppReadyCount > 0 && !iAmReady && (
               <span style={{ fontSize: 12, opacity: 0.85, color: '#facc15' }}>
-                Opponent wants a rematch
+                {oppReadyCount} of {opponents.length} want a rematch
               </span>
             )}
           </div>
@@ -1094,7 +1115,7 @@ function SabongHUD({
       <MuteChip />
 
       {/* Hint when the player is alone in the room — make it obvious how to invite. */}
-      {view.phase === 'waiting' && !opponent && <WaitingForOpponentBanner />}
+      {view.phase === 'waiting' && opponents.length === 0 && <WaitingForOpponentBanner />}
 
       {/* Weapon + buffs panel */}
       {me && view.phase !== 'over' && <LoadoutPanel me={me} />}
@@ -1119,7 +1140,10 @@ function SabongHUDStyles() {
         .sabong-badge-label { font-size: 8px !important; letter-spacing: 1px !important; }
         .sabong-badge-name { font-size: 13px !important; letter-spacing: 0.5px !important; }
         .sabong-badge-hp { font-size: 10px !important; }
-        .sabong-vs { font-size: 20px !important; }
+        .sabong-vs { font-size: 18px !important; }
+        .sabong-scoreboard { min-width: 0 !important; max-width: 44vw !important; padding: 4px 6px !important; }
+        .sabong-scoreboard-label { font-size: 8px !important; letter-spacing: 1px !important; }
+        .sabong-scoreboard-row { font-size: 10px !important; gap: 4px !important; }
 
         .sabong-invite-chip { top: 62px !important; right: 8px !important; padding: 4px 8px !important; gap: 6px !important; }
         .sabong-mute-chip { top: 8px !important; right: 8px !important; padding: 4px 8px !important; font-size: 12px !important; }
@@ -1307,6 +1331,71 @@ const camChip: React.CSSProperties = {
   border: '2px solid #facc15', padding: '6px 12px',
   fontFamily: '"JetBrains Mono", monospace', fontSize: 12, letterSpacing: 1,
   cursor: 'pointer',
+}
+
+// Royale scoreboard — compact list of opponents with color dot, name, HP bar.
+// Caps at the first 9 rows (the room max is 10 birds total) so the column
+// stays bounded on mobile.
+function OpponentScoreboard({ opponents, myId }: { opponents: BirdView[]; myId: string | null }) {
+  if (opponents.length === 0) {
+    return (
+      <div className="sabong-scoreboard" style={scoreboard}>
+        <div style={{ fontSize: 10, letterSpacing: 2, opacity: 0.7 }}>WAITING…</div>
+        <div style={{ fontSize: 11, opacity: 0.55, marginTop: 2 }}>Share the room code</div>
+      </div>
+    )
+  }
+  return (
+    <div className="sabong-scoreboard" style={scoreboard}>
+      <div className="sabong-scoreboard-label" style={{ fontSize: 10, letterSpacing: 2, opacity: 0.7, marginBottom: 2 }}>
+        OPPONENTS ({opponents.length})
+      </div>
+      {opponents.slice(0, 9).map((o) => {
+        const targeting = myId && o.id === myId // never true, but keep for future highlight
+        return (
+          <div key={o.id} className="sabong-scoreboard-row" style={{ ...scoreboardRow, opacity: o.alive ? 1 : 0.4 }}>
+            <span style={{ ...scoreboardDot, background: o.color }} />
+            <span style={scoreboardName}>{o.name || '—'}</span>
+            <div style={scoreboardHpTrack}>
+              <div style={{
+                ...scoreboardHpFill,
+                width: `${Math.max(0, Math.min(100, o.hp))}%`,
+                background: o.hp > 40 ? '#22c55e' : o.hp > 20 ? '#facc15' : '#dc2626',
+              }} />
+            </div>
+            <span style={scoreboardHpText}>{o.alive ? o.hp : '☠'}</span>
+            {targeting ? null : null}
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
+const scoreboard: React.CSSProperties = {
+  background: 'rgba(12,12,12,0.85)', border: '2px solid rgba(255,255,255,0.15)',
+  padding: '6px 10px', minWidth: 220, maxWidth: 280,
+  display: 'flex', flexDirection: 'column', gap: 2,
+}
+const scoreboardRow: React.CSSProperties = {
+  display: 'flex', alignItems: 'center', gap: 6, fontSize: 11,
+}
+const scoreboardDot: React.CSSProperties = {
+  width: 10, height: 10, borderRadius: '50%',
+  border: '1px solid rgba(255,255,255,0.5)', flexShrink: 0,
+}
+const scoreboardName: React.CSSProperties = {
+  flex: '0 0 auto', maxWidth: 90,
+  overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+  fontFamily: 'Anton, sans-serif', letterSpacing: 0.5,
+}
+const scoreboardHpTrack: React.CSSProperties = {
+  flex: 1, height: 6, background: 'rgba(255,255,255,0.08)',
+  border: '1px solid rgba(255,255,255,0.18)', minWidth: 40,
+}
+const scoreboardHpFill: React.CSSProperties = { height: '100%', transition: 'width 0.18s' }
+const scoreboardHpText: React.CSSProperties = {
+  minWidth: 22, textAlign: 'right', fontSize: 10, opacity: 0.85,
 }
 
 function BirdBadge({ bird, accent, label, peckGlow }: { bird?: BirdView; accent: string; label: string; peckGlow: number }) {

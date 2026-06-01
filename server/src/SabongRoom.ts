@@ -45,10 +45,34 @@ export class SabongState extends Schema {
 // direction. yaw = atan2(-forwardX, -forwardZ).
 //   Player1 at (-3,0,0), forward +X  → ry = atan2(-1, 0) = -π/2
 //   Player2 at (+3,0,0), forward -X  → ry = atan2( 1, 0) =  π/2
-const SPAWNS: Array<{ x: number; z: number; ry: number; color: string }> = [
-  { x: -8, z: 0,  ry: -Math.PI / 2, color: "#dc2626" },
-  { x:  8, z: 0,  ry:  Math.PI / 2, color: "#2563eb" },
+// Royale mode supports up to 10 birds. We spawn them on a ring inside the
+// arena, evenly spaced, each facing the centre. Colors are picked from a
+// distinct palette so badges / minimap dots read cleanly even at 10.
+const ROYALE_MAX = 10;
+const SPAWN_RING_R = 10;
+const ROYALE_COLORS = [
+  "#dc2626", // red
+  "#2563eb", // blue
+  "#16a34a", // green
+  "#facc15", // yellow
+  "#a855f7", // purple
+  "#fb923c", // orange
+  "#06b6d4", // cyan
+  "#ec4899", // pink
+  "#84cc16", // lime
+  "#f5f5f5", // bone-white
 ];
+// Forward axis convention (matches existing client / pose code):
+//   ry = atan2(-forwardX, -forwardZ)
+// For an inward-facing bird at (x, z) on a ring of radius r:
+//   forward = (-x/r, -z/r)  →  ry = atan2(x/r, z/r) = atan2(x, z)
+const SPAWNS: Array<{ x: number; z: number; ry: number; color: string }> = ROYALE_COLORS.map((color, i) => {
+  const a = (i / ROYALE_COLORS.length) * Math.PI * 2;
+  const x = Math.cos(a) * SPAWN_RING_R;
+  const z = Math.sin(a) * SPAWN_RING_R;
+  const ry = Math.atan2(x, z);
+  return { x, z, ry, color };
+});
 
 // Arena radius (server-authoritative items spawn inside this; client matches).
 const ARENA_R = 14;
@@ -102,7 +126,11 @@ const PICKUP_RADIUS = 1.6;
 const HIT_RADIUS = 0.6; // ranged ray vs bird capsule (approx as a 0.6m radius column)
 
 export class SabongRoom extends Room<SabongState> {
-  maxClients = 2;
+  maxClients = ROYALE_MAX;
+  // Auto-start handle — every join while in 'waiting' resets this to give
+  // other players time to drop in before the countdown finishes.
+  private startTimer: ReturnType<typeof setTimeout> | null = null;
+  private static START_DELAY_MS = 5000;
 
   onCreate() {
     this.setState(new SabongState());
@@ -153,6 +181,9 @@ export class SabongRoom extends Room<SabongState> {
       if (this.state.phase !== "over") return;
       if (this.state.rematchReady.includes(client.sessionId)) return;
       this.state.rematchReady.push(client.sessionId);
+      // Royale: rematch starts once everyone still in the room has clicked.
+      // With more than 2 birds we'd otherwise stall forever waiting on the
+      // person who closed their tab — leave the room and they auto-drop.
       if (this.state.rematchReady.length >= this.state.birds.size && this.state.birds.size >= 2) {
         this.resetMatch();
       }
@@ -344,7 +375,12 @@ export class SabongRoom extends Room<SabongState> {
   }
 
   onJoin(client: Client, options: { name?: string }) {
-    const slot = this.state.birds.size;
+    // Pick the first unused spawn slot so colors stay distinct even if a
+    // mid-game leaver freed up slot 3.
+    const usedSlots = new Set<number>();
+    for (const other of this.state.birds.values()) usedSlots.add(other.spawnIndex);
+    let slot = 0;
+    while (slot < SPAWNS.length && usedSlots.has(slot)) slot++;
     const spawn = SPAWNS[slot] ?? SPAWNS[0];
     const b = new Bird();
     b.id = client.sessionId;
@@ -354,11 +390,18 @@ export class SabongRoom extends Room<SabongState> {
     b.x = spawn.x; b.z = spawn.z; b.ry = spawn.ry;
     this.state.birds.set(client.sessionId, b);
 
-    if (this.state.birds.size === 2 && this.state.phase === "waiting") {
-      // Brief countdown handled client-side; we just flip phase.
-      setTimeout(() => {
-        if (this.state.birds.size === 2) this.state.phase = "fighting";
-      }, 2500);
+    // Royale start logic: any time we have ≥2 birds in 'waiting', kick off a
+    // short countdown. Every new join resets it so a stream of friends can
+    // load in without an instant start. Once 'fighting', new joiners drop in
+    // alive with full HP — chaotic, but that's the point.
+    if (this.state.phase === "waiting" && this.state.birds.size >= 2) {
+      if (this.startTimer) clearTimeout(this.startTimer);
+      this.startTimer = setTimeout(() => {
+        this.startTimer = null;
+        if (this.state.birds.size >= 2 && this.state.phase === "waiting") {
+          this.state.phase = "fighting";
+        }
+      }, SabongRoom.START_DELAY_MS);
     }
   }
 
@@ -366,6 +409,15 @@ export class SabongRoom extends Room<SabongState> {
     const b = this.state.birds.get(client.sessionId);
     if (b) b.alive = false;
     this.state.birds.delete(client.sessionId);
+    // Also drop any pending rematch vote from the leaver.
+    const idx = this.state.rematchReady.indexOf(client.sessionId);
+    if (idx >= 0) this.state.rematchReady.splice(idx, 1);
+    // If they bailed during pre-fight and we no longer have a quorum, cancel
+    // the start countdown so we wait for new joiners.
+    if (this.state.phase === "waiting" && this.state.birds.size < 2 && this.startTimer) {
+      clearTimeout(this.startTimer);
+      this.startTimer = null;
+    }
     if (this.state.phase === "fighting") this.checkWinner();
   }
 
@@ -395,11 +447,13 @@ export class SabongRoom extends Room<SabongState> {
       b.regenUntil = 0;
       b.immortalUntil = 0;
     }
-    setTimeout(() => {
+    if (this.startTimer) clearTimeout(this.startTimer);
+    this.startTimer = setTimeout(() => {
+      this.startTimer = null;
       if (this.state.birds.size >= 2 && this.state.phase === "waiting") {
         this.state.phase = "fighting";
       }
-    }, 2500);
+    }, SabongRoom.START_DELAY_MS);
   }
 
   private checkWinner() {
