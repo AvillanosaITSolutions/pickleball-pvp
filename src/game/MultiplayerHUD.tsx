@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useMultiplayer } from './multiplayer'
 import { createRoom, joinRoom } from './net'
+import { crazyMakeInviteLink } from './crazygames'
 
 export function MultiplayerHUD() {
   const code = useMultiplayer((s) => s.code)
@@ -23,7 +24,9 @@ export function MultiplayerHUD() {
     }
   }, [])
 
-  const inviteUrl = code ? `${window.location.origin}${window.location.pathname}?room=${code}` : ''
+  const inviteUrl = code
+    ? crazyMakeInviteLink({ roomCode: code }, `${window.location.origin}${window.location.pathname}?room=${code}`)
+    : ''
 
   const handleCreate = async () => {
     setBusy(true); setErr(null)

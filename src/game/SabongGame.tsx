@@ -8,7 +8,7 @@ import { ErrorBoundary } from './ErrorBoundary'
 import { useMultiplayer } from './multiplayer'
 import { getRoom, sendRoomMessage, leaveRoom } from './net'
 import { playMusic, stopMusic, playSfx, isMuted, toggleMuted, subscribeAudio } from './sfx'
-import { crazyRequestMidgameAd } from './crazygames'
+import { crazyRequestMidgameAd, crazyMakeInviteLink, crazyHappytime } from './crazygames'
 
 // Sabong = top-down arena fight, but rendered in the same 3D environment as
 // the rage room. Each player is a rooster (capsule + comb + beak). Click pecks
@@ -210,6 +210,7 @@ export function SabongGame({ onExit }: { onExit?: () => void } = {}) {
       if (view.winner && myId && view.winner === myId) { playMusic('sabongVictory'); playSfx('victory') }
       else if (view.winner) { stopMusic(); playSfx('death') }
       else stopMusic()
+      crazyHappytime()
     }
   }, [view.phase, view.winner, myId])
 
@@ -1328,7 +1329,10 @@ function RoomInviteChip() {
   const mode = useMultiplayer((s) => s.mode)
   const [copied, setCopied] = useState(false)
   if (!code) return null
-  const inviteUrl = `${window.location.origin}${window.location.pathname}?room=${code}&mode=${mode}`
+  // On CrazyGames, build a crazygames.com URL via the SDK (their static URL
+  // doesn't carry query params). Off-platform, fall back to our own URL.
+  const fallback = `${window.location.origin}${window.location.pathname}?room=${code}&mode=${mode}`
+  const inviteUrl = crazyMakeInviteLink({ roomCode: code, mode }, fallback)
   const onCopy = async () => {
     // On mobile, prefer the native share sheet so users can send via Messages/WhatsApp/etc.
     if (typeof navigator !== 'undefined' && (navigator as any).share) {

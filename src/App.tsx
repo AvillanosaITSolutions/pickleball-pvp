@@ -4,7 +4,8 @@ import { SabongGame } from './game/SabongGame'
 import { AuthGate } from './game/AuthGate'
 import { Lobby, clearInviteUrl } from './game/Lobby'
 import { useMultiplayer } from './game/multiplayer'
-import { initCrazyGames, crazyLoadingDone, crazyGameplayStart, crazyGameplayStop } from './game/crazygames'
+import { initCrazyGames, crazyLoadingDone, crazyGameplayStart, crazyGameplayStop, onCrazyMuteChange } from './game/crazygames'
+import { setMuted } from './game/sfx'
 import './App.css'
 
 // Build-time game selector. Set VITE_GAME=rage or VITE_GAME=sabong to ship
@@ -18,6 +19,10 @@ function App() {
   const exit = () => { setInGame(false); clearInviteUrl(); crazyGameplayStop() }
 
   useEffect(() => { initCrazyGames().then(crazyLoadingDone) }, [])
+
+  // CrazyGames has a site-wide mute toggle. Reflect it in our audio state so
+  // players don't have to mute twice. Their UI is the source of truth here.
+  useEffect(() => onCrazyMuteChange((m) => setMuted(m)), [])
   useEffect(() => {
     if (inGame) crazyGameplayStart()
     else crazyGameplayStop()

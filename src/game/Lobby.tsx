@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useMultiplayer } from './multiplayer'
 import { quickplay, createRoom, joinRoom } from './net'
+import { crazyReadInviteParams, onCrazyInviteParams, initCrazyGames, crazyGetUser, onCrazyAuthChange } from './crazygames'
 
 // Game modes — `rage` is the only live mode today. More modes plug in here
 // and get a matching `gameServer.define(...)` on the server.
@@ -53,16 +54,56 @@ export function Lobby({ onEnter }: Props) {
 
   useEffect(() => { try { localStorage.setItem('mpMode', mode) } catch {} }, [mode])
 
+  // Pre-fill display name from the CrazyGames-signed-in user (if any). Don't
+  // overwrite a name the player already typed/saved — only fill if empty.
+  useEffect(() => {
+    let cancelled = false
+    crazyGetUser().then((u) => {
+      if (cancelled || !u?.username) return
+      if (!useMultiplayer.getState().myName.trim()) setName(u.username)
+    })
+    const off = onCrazyAuthChange((u) => {
+      if (u?.username && !useMultiplayer.getState().myName.trim()) setName(u.username)
+    })
+    return () => { cancelled = true; off() }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
   // Already connected to a room? Skip the lobby.
   useEffect(() => { if (code) onEnter() }, [code, onEnter])
 
-  // Auto-join from invite link (?room=XYZ&mode=sabong). Runs once on mount.
+  // Auto-join from an invite. Two sources are checked, in order:
+  //   1. CrazyGames SDK invite params — used when embedded on crazygames.com.
+  //      Their static URL doesn't carry query params, so we ask the SDK.
+  //   2. URL params (?room=XYZ&mode=sabong) — used outside CG embed.
+  // Also subscribes to CG's live invite-params listener so a friend's click
+  // mid-session can yank us into their room.
   useEffect(() => {
     if (code) return
+    // URL params first (works without the SDK, e.g. local dev).
     const url = new URL(window.location.href)
-    const inviteRoom = url.searchParams.get('room')
-    const inviteMode = url.searchParams.get('mode')
-    if (!inviteRoom) return
+    const urlRoom = url.searchParams.get('room')
+    const urlMode = url.searchParams.get('mode')
+    if (urlRoom) { attemptJoin(urlRoom, urlMode); return }
+
+    // Then ask CrazyGames once init resolves — embed-only path.
+    let cancelled = false
+    initCrazyGames().then(() => {
+      if (cancelled || useMultiplayer.getState().code) return
+      const cg = crazyReadInviteParams()
+      if (cg?.roomCode) attemptJoin(cg.roomCode, cg.mode ?? null)
+    })
+
+    // Live updates: a friend clicked invite while we were already in the lobby.
+    const off = onCrazyInviteParams((p) => {
+      if (!p.roomCode) return
+      attemptJoin(p.roomCode, p.mode ?? null)
+    })
+    return () => { cancelled = true; off() }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  function attemptJoin(inviteRoom: string, inviteMode: string | null) {
     if (inviteMode) setMode(inviteMode)
     const name = myName.trim() || `Player${Math.floor(Math.random() * 1000)}`
     setBusy('join')
@@ -78,8 +119,7 @@ export function Lobby({ onEnter }: Props) {
         window.history.replaceState({}, '', window.location.pathname)
       }
     })
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }
 
   async function go(action: 'quick' | 'create' | 'join') {
     if (busy) return

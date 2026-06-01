@@ -5,6 +5,14 @@
 //
 // Docs: https://docs.crazygames.com/sdk/v3/
 
+// Parameters embedded in a CrazyGames invite link. We use `roomCode` and
+// `mode` so a friend who clicks the link lands directly in the right
+// Colyseus room. Keys must be short — CG packs them into the URL.
+interface InviteParams { roomCode?: string; mode?: string }
+
+interface CrazyGameSettings { muteAudio?: boolean; disableChat?: boolean }
+interface CrazyUser { username?: string; profilePictureUrl?: string }
+
 declare global {
   interface Window {
     CrazyGames?: {
@@ -16,6 +24,21 @@ declare global {
           loadingStart: () => void
           loadingStop: () => void
           happytime: () => void
+          inviteLink: (params: InviteParams) => string
+          getInviteParam: (key: keyof InviteParams) => string | null
+          addInviteLinkParamsListener: (cb: (params: InviteParams) => void) => void
+          removeInviteLinkParamsListener: (cb: (params: InviteParams) => void) => void
+          settings: CrazyGameSettings
+          addSettingsChangeListener: (cb: (s: CrazyGameSettings) => void) => void
+          removeSettingsChangeListener: (cb: (s: CrazyGameSettings) => void) => void
+        }
+        user: {
+          isUserAccountAvailable: boolean
+          getUser: () => Promise<CrazyUser | null>
+          getUserToken: () => Promise<string | null>
+          showAuthPrompt: () => Promise<CrazyUser | null>
+          addAuthListener: (cb: (user: CrazyUser | null) => void) => void
+          removeAuthListener: (cb: (user: CrazyUser | null) => void) => void
         }
         ad: {
           requestAd: (
@@ -65,6 +88,108 @@ export function crazyGameplayStart() {
 
 export function crazyGameplayStop() {
   safe(() => sdk()!.game.gameplayStop())
+}
+
+// Mark a "happy moment" — end of round, level cleared. Signals to CG that
+// it's a natural pause where an ad could be slotted (still rate-limited).
+export function crazyHappytime() {
+  safe(() => sdk()!.game.happytime())
+}
+
+// === Multiplayer SDK ===
+// CrazyGames generates a short invite URL (https://crazygames.com/game/<slug>?...)
+// that other players can open from anywhere. Calling this also tells CG to
+// show the in-platform "Invite friends" UI for this room.
+export function crazyMakeInviteLink(params: InviteParams, fallback: string): string {
+  const s = sdk()
+  if (!ready || !s) return fallback
+  try { return s.game.inviteLink(params) } catch { return fallback }
+}
+
+// On load: if the player arrived via a CG invite link, return the room they
+// should auto-join. Returns null otherwise.
+export function crazyReadInviteParams(): InviteParams | null {
+  const s = sdk()
+  if (!ready || !s) return null
+  try {
+    const roomCode = s.game.getInviteParam('roomCode') || undefined
+    const mode = s.game.getInviteParam('mode') || undefined
+    return roomCode ? { roomCode, mode } : null
+  } catch { return null }
+}
+
+// Listen for the player clicking an invite from a friend WHILE the game is
+// already open (CG can update params live without a reload). Waits for init
+// to resolve before subscribing — the listener API throws otherwise.
+// Returns an unsubscribe fn.
+export function onCrazyInviteParams(cb: (p: InviteParams) => void): () => void {
+  const s = sdk()
+  if (!s) return () => {}
+  const wrapped = (p: InviteParams) => { try { cb(p) } catch {} }
+  let cancelled = false
+  let attached = false
+  initCrazyGames().then(() => {
+    if (cancelled || !ready) return
+    try { s.game.addInviteLinkParamsListener(wrapped); attached = true } catch {}
+  })
+  return () => {
+    cancelled = true
+    if (attached) { try { s.game.removeInviteLinkParamsListener(wrapped) } catch {} }
+  }
+}
+
+// === Audio mute sync ===
+// CrazyGames lets users mute games via their site-wide UI. The SDK exposes
+// the current value at `settings.muteAudio` and notifies us when it flips.
+// Returns an unsubscribe fn. `cb` is called once at init with the initial
+// value and again on every change.
+export function onCrazyMuteChange(cb: (muted: boolean) => void): () => void {
+  const s = sdk()
+  if (!s) return () => {}
+  const wrapped = (settings: CrazyGameSettings) => { try { cb(!!settings.muteAudio) } catch {} }
+  let cancelled = false
+  let attached = false
+  initCrazyGames().then(() => {
+    if (cancelled || !ready) return
+    try {
+      cb(!!s.game.settings.muteAudio)
+      s.game.addSettingsChangeListener(wrapped)
+      attached = true
+    } catch {}
+  })
+  return () => {
+    cancelled = true
+    if (attached) { try { s.game.removeSettingsChangeListener(wrapped) } catch {} }
+  }
+}
+
+// === User account ===
+// If a CrazyGames user is signed in on the portal, return their profile so
+// we can pre-fill the display name and skip making players type one.
+export async function crazyGetUser(): Promise<CrazyUser | null> {
+  const s = sdk()
+  if (!s) return null
+  await initCrazyGames()
+  if (!ready) return null
+  try { return await s.user.getUser() } catch { return null }
+}
+
+// Subscribe to login/logout events from CG portal so the display name updates
+// live if the player signs in mid-session.
+export function onCrazyAuthChange(cb: (user: CrazyUser | null) => void): () => void {
+  const s = sdk()
+  if (!s) return () => {}
+  const wrapped = (u: CrazyUser | null) => { try { cb(u) } catch {} }
+  let cancelled = false
+  let attached = false
+  initCrazyGames().then(() => {
+    if (cancelled || !ready) return
+    try { s.user.addAuthListener(wrapped); attached = true } catch {}
+  })
+  return () => {
+    cancelled = true
+    if (attached) { try { s.user.removeAuthListener(wrapped) } catch {} }
+  }
 }
 
 // Signal a natural break — CrazyGames may insert a midgame ad here, but only
