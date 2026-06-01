@@ -34,37 +34,51 @@ declare global {
 
 const sdk = () => window.CrazyGames?.SDK
 
+let ready = false
 let initPromise: Promise<void> | null = null
+
+// Every SDK call must happen AFTER init() resolves and inside a try/catch:
+// the SDK throws synchronously on misuse (e.g. sdkNotInitialized), and an
+// uncaught throw inside a React effect halts the whole render tree.
+function safe(fn: () => void) {
+  if (!ready) return
+  try { fn() } catch { /* SDK quirks (rate-limits, init order) — non-fatal */ }
+}
 
 export function initCrazyGames() {
   if (initPromise) return initPromise
   const s = sdk()
   if (!s) return Promise.resolve()
-  initPromise = s.init().catch(() => {})
-  s.game.loadingStart()
+  initPromise = s.init()
+    .then(() => { ready = true; safe(() => s.game.loadingStart()) })
+    .catch(() => { /* not embedded / blocked — keep ready=false, calls no-op */ })
   return initPromise
 }
 
 export function crazyLoadingDone() {
-  sdk()?.game.loadingStop()
+  safe(() => sdk()!.game.loadingStop())
 }
 
 export function crazyGameplayStart() {
-  sdk()?.game.gameplayStart()
+  safe(() => sdk()!.game.gameplayStart())
 }
 
 export function crazyGameplayStop() {
-  sdk()?.game.gameplayStop()
+  safe(() => sdk()!.game.gameplayStop())
 }
 
 // Signal a natural break — CrazyGames may insert a midgame ad here, but only
 // if their ad cadence allows it (they rate-limit so players aren't spammed).
 export function crazyRequestMidgameAd(onDone?: () => void) {
   const s = sdk()
-  if (!s) { onDone?.(); return }
-  s.game.gameplayStop()
-  s.ad.requestAd('midgame', {
-    adFinished: () => { s.game.gameplayStart(); onDone?.() },
-    adError: () => { s.game.gameplayStart(); onDone?.() },
-  })
+  if (!ready || !s) { onDone?.(); return }
+  try {
+    s.game.gameplayStop()
+    s.ad.requestAd('midgame', {
+      adFinished: () => { safe(() => s.game.gameplayStart()); onDone?.() },
+      adError:    () => { safe(() => s.game.gameplayStart()); onDone?.() },
+    })
+  } catch {
+    onDone?.()
+  }
 }
