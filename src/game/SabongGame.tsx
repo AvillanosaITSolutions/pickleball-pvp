@@ -1105,7 +1105,7 @@ function SabongHUD({
             : `${totalPlayers} ready — fight starts soon…`
         )}
         {view.phase === 'fighting' && !touch && (
-          <span style={{ opacity: 0.7 }}>
+          <span className="sabong-controls-hint" style={{ opacity: 0.7 }}>
             Click to peck · WASD to move · Space to jump · V toggles view · Esc to free cursor
           </span>
         )}
@@ -1196,10 +1196,29 @@ function SabongHUDStyles() {
         .sabong-scoreboard-label { font-size: 8px !important; letter-spacing: 1px !important; }
         .sabong-scoreboard-row { font-size: 10px !important; gap: 4px !important; }
 
-        .sabong-invite-chip { top: 62px !important; right: 8px !important; padding: 4px 8px !important; gap: 6px !important; }
-        .sabong-mute-chip { top: 8px !important; left: 8px !important; right: auto !important; padding: 4px 8px !important; font-size: 12px !important; }
+        /* Mute chip: drop the volume sliders entirely on small screens — just the
+           toggle button remains. CG handles audio mute globally via their UI, and
+           on-screen fine-grained volume sliders are too fiddly for touch. */
+        .sabong-mute-wrap { gap: 0 !important; padding: 4px 6px !important; }
+        .sabong-mute-sliders { display: none !important; }
+        .sabong-mute-chip { font-size: 16px !important; }
+
+        /* Cam chip + invite chip live on the top-right column, stacked under
+           the scoreboard. Old layout had them overlapping the score rows. */
+        .sabong-cam-chip {
+          top: auto !important; bottom: 110px !important; right: 8px !important;
+          padding: 4px 8px !important; font-size: 10px !important;
+        }
+        .sabong-invite-chip {
+          top: auto !important; bottom: 64px !important; right: 8px !important;
+          padding: 4px 8px !important; gap: 6px !important;
+        }
         .sabong-invite-chip code { font-size: 11px !important; letter-spacing: 1px !important; }
         .sabong-invite-btn { padding: 3px 6px !important; font-size: 10px !important; }
+
+        /* The full keyboard cheatsheet doesn't fit and isn't relevant on narrow
+           or touch screens — touch overlay already labels its buttons. */
+        .sabong-controls-hint { display: none !important; }
 
         .sabong-loadout {
           top: 108px !important; left: 8px !important; right: 8px !important;
@@ -1533,7 +1552,7 @@ export function MuteChip() {
   const onSfxChange = (v: number) => { setSfxVol(v); setSfxVolume(v) }
 
   return (
-    <div style={{ ...muteChip, pointerEvents: 'auto', display: 'flex', alignItems: 'center', gap: 8 }}>
+    <div className="sabong-mute-wrap" style={{ ...muteChip, pointerEvents: 'auto', display: 'flex', alignItems: 'center', gap: 8 }}>
       <button
         onClick={(e) => { e.stopPropagation(); toggleMuted() }}
         className="sabong-mute-chip"
@@ -1542,7 +1561,7 @@ export function MuteChip() {
       >
         {muted ? '🔇' : '🔊'}
       </button>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 4, minWidth: 140 }}>
+      <div className="sabong-mute-sliders" style={{ display: 'flex', flexDirection: 'column', gap: 4, minWidth: 140 }}>
         <input
           aria-label="music volume"
           type="range"
