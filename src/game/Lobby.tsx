@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useMultiplayer } from './multiplayer'
 import { quickplay, createRoom, joinRoom } from './net'
-import { crazyReadInviteParams, onCrazyInviteParams, initCrazyGames, crazyGetUser, onCrazyAuthChange } from './crazygames'
+import { crazyReadInviteParams, onCrazyInviteParams, initCrazyGames, crazyGetUser, onCrazyAuthChange, isInstantMultiplayer } from './crazygames'
 
 // Game modes — `rage` is the only live mode today. More modes plug in here
 // and get a matching `gameServer.define(...)` on the server.
@@ -95,6 +95,11 @@ export function Lobby({ onEnter }: Props) {
     const urlRoom = url.searchParams.get('room')
     const urlMode = url.searchParams.get('mode')
     if (urlRoom) { attemptJoin(urlRoom, urlMode); return }
+
+    // Instant Multiplayer: CG launched us from their Multiplayer landing page
+    // (?instantJoin=true). Skip the lobby entirely and matchmake the player
+    // into a public room so their friends can hop in immediately.
+    if (isInstantMultiplayer()) { go('quick'); return }
 
     // Then ask CrazyGames once init resolves — embed-only path.
     let cancelled = false

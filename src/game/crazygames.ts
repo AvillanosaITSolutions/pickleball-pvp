@@ -142,6 +142,17 @@ export function onCrazyInviteParams(cb: (p: InviteParams) => void): () => void {
   }
 }
 
+// === Instant Multiplayer ===
+// CG's Multiplayer landing page can launch your game with ?instantJoin=true.
+// When that flag is set, the SDK spec says: skip your lobby and put the
+// player directly into a joinable room so their friends can hop in.
+// We detect it via the URL (same way the SDK itself does internally) — that's
+// the most reliable signal and works before init() resolves.
+export function isInstantMultiplayer(): boolean {
+  if (typeof window === 'undefined') return false
+  return window.location.search.includes('instantJoin=true')
+}
+
 // === Multiplayer room state (CG-side) ===
 // Tells CrazyGames which room the player is in. Required for their friend-
 // invite / party flows: their portal needs the room id + invite params to

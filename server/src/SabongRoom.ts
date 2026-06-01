@@ -147,13 +147,26 @@ interface BotTuning {
   reactionMs: number;         // delay after acquiring a new target before pecking
   peckCooldownMul: number;    // multiplier on the base weapon cooldown
   aimSlack: number;           // extra cone tolerance — easier bots swing wildly
-  pickupChance: number;       // 0..1 probability per tick of going for a nearby item
+  itemSeekRadius: number;     // meters — distance at which bots detour for items
+  fleeHpFrac: number;         // HP fraction below which the bot retreats + seeks heals
+  jumpChancePerSec: number;   // base probability/sec of a combat hop while in attack range
+  targetSwitchSec: number;    // re-evaluate target at least this often (sec) for variety
 }
 const BOT_TUNING: Record<BotDifficulty, BotTuning> = {
-  easy:   { moveSpeed: 2.5, reactionMs: 600, peckCooldownMul: 1.6, aimSlack: 0.4, pickupChance: 0.1 },
-  normal: { moveSpeed: 3.5, reactionMs: 250, peckCooldownMul: 1.0, aimSlack: 0.2, pickupChance: 0.4 },
-  hard:   { moveSpeed: 4.5, reactionMs: 80,  peckCooldownMul: 0.9, aimSlack: 0.05, pickupChance: 0.8 },
+  // Easy bots wander, swing wildly, panic early, rarely jump or grab loot.
+  easy:   { moveSpeed: 2.5, reactionMs: 600, peckCooldownMul: 1.6, aimSlack: 0.4,  itemSeekRadius: 5,  fleeHpFrac: 0.45, jumpChancePerSec: 0.4, targetSwitchSec: 6 },
+  // Normal bots play the mid-line — sometimes flee, sometimes chase, mostly land hits.
+  normal: { moveSpeed: 3.5, reactionMs: 250, peckCooldownMul: 1.0, aimSlack: 0.2,  itemSeekRadius: 8,  fleeHpFrac: 0.3,  jumpChancePerSec: 0.8, targetSwitchSec: 4 },
+  // Hard bots ruthlessly grab loot, swap targets frequently, and only flee when nearly dead.
+  hard:   { moveSpeed: 4.5, reactionMs: 80,  peckCooldownMul: 0.9, aimSlack: 0.05, itemSeekRadius: 12, fleeHpFrac: 0.2,  jumpChancePerSec: 1.4, targetSwitchSec: 2.5 },
 };
+// Physics for bot vertical hops — matches the client's feel (a short, snappy flap).
+const BOT_JUMP_V = 5.5;
+const BOT_GRAVITY = -14;
+const BIRD_GROUND_Y = 0.9;
+// Items worth detouring for. Heals are special-cased when the bot is low HP.
+const HEAL_KINDS = new Set(["heal", "regen", "immortal"]);
+const WEAPON_KINDS = new Set(["spear", "slingshot", "lightning"]);
 const BOT_NAMES = [
   "Clucky", "Beak Bot", "Drumstick", "Featherweight", "Nugget",
   "Cluck Norris", "Henrietta", "Pecky", "Talon", "Eggbert",
@@ -168,9 +181,18 @@ export class SabongRoom extends Room<SabongState> {
   private static START_DELAY_MS = 5000;
 
   // Bot bookkeeping — keyed by the synthetic bird id we assigned at spawn.
-  // Tracks the in-flight target + when the bot first "saw" them, so we can
-  // apply a reaction delay before swinging on easier difficulties.
-  private bots = new Map<string, { difficulty: BotDifficulty; targetId: string | null; firstSawTargetAt: number }>();
+  //   targetPickedAt: when we last (re)chose a target, used to force rotation
+  //     so a bot doesn't tunnel-vision on one bird the whole match.
+  //   vy: vertical velocity for the bot's jump physics (server-simulated).
+  //   nextJumpEligibleAt: gentle anti-spam so they don't pogo every tick.
+  private bots = new Map<string, {
+    difficulty: BotDifficulty;
+    targetId: string | null;
+    firstSawTargetAt: number;
+    targetPickedAt: number;
+    vy: number;
+    nextJumpEligibleAt: number;
+  }>();
   private botCounter = 0;
   private botTickHandle: ReturnType<typeof setInterval> | null = null;
 
@@ -528,62 +550,128 @@ export class SabongRoom extends Room<SabongState> {
     b.isBot = true;
     b.botDifficulty = difficulty;
     this.state.birds.set(id, b);
-    this.bots.set(id, { difficulty, targetId: null, firstSawTargetAt: 0 });
+    this.bots.set(id, {
+      difficulty, targetId: null, firstSawTargetAt: 0,
+      targetPickedAt: 0, vy: 0, nextJumpEligibleAt: 0,
+    });
   }
 
-  // Bot AI — runs at 10Hz. Walks each bot toward its nearest live opponent and
-  // pecks when in range. Difficulty controls movement speed, the reaction
-  // delay before the first peck on a new target, and how loose the aim cone
-  // can be. Pickups: a tunable probability per tick of walking toward a
-  // nearby item instead of the target — keeps fights varied across rounds.
+  // Bot AI — 10Hz tick. Each bot picks a target (with periodic rotation so they
+  // don't tunnel-vision on the human), decides between three behaviors based on
+  // HP and nearby items, then acts:
+  //   FLEE   — HP below the difficulty-tuned threshold: sprint away from threats
+  //            and home in on a heal/regen drop if one's in range.
+  //   LOOT   — A worthwhile item (heal when wounded, weapon if still on beak) is
+  //            within itemSeekRadius and closer than the current target. Detour.
+  //   FIGHT  — Default. Walk into attack range, peck/shoot, and occasionally hop
+  //            mid-combat so they're not flat-footed targets.
+  //
+  // Bots also vertical-simulate via `vy` so they can jump on command — the
+  // existing Bird.y field is broadcast to all clients automatically.
   private botTick() {
     if (this.state.phase !== "fighting") return;
     const now = Date.now();
     const dt = BOT_TICK_MS / 1000;
+
     for (const [botId, ctx] of this.bots) {
       const me = this.state.birds.get(botId);
       if (!me || !me.alive) continue;
       const tuning = BOT_TUNING[ctx.difficulty];
 
-      // Find nearest live opponent (skip other bots only if there's a human;
-      // otherwise bots will happily fight each other so the match resolves).
-      let humansAlive = 0;
-      for (const o of this.state.birds.values()) if (o.alive && !o.isBot) humansAlive++;
-      let target: Bird | null = null;
-      let bestDist = Infinity;
-      for (const other of this.state.birds.values()) {
-        if (other.id === me.id || !other.alive) continue;
-        if (humansAlive > 0 && other.isBot) continue;
-        const d = Math.hypot(other.x - me.x, other.z - me.z);
-        if (d < bestDist) { bestDist = d; target = other; }
-      }
-
-      if (!target) continue;
-      if (ctx.targetId !== target.id) {
-        ctx.targetId = target.id;
-        ctx.firstSawTargetAt = now;
-      }
-
-      // Optional pickup detour — bias toward the closest item if RNG allows.
-      let goalX = target.x;
-      let goalZ = target.z;
-      if (Math.random() < tuning.pickupChance * dt) {
-        let nearestItem: ItemDrop | null = null;
-        let nearestItemDist = Infinity;
-        for (const it of this.state.items.values()) {
-          const d = Math.hypot(it.x - me.x, it.z - me.z);
-          if (d < nearestItemDist && d < 6) { nearestItemDist = d; nearestItem = it; }
+      // === 1. Target selection ===
+      // Periodically force a re-pick so bots don't all converge on the same
+      // bird. Inside the window we keep the current target if it's still alive.
+      const currentTarget = ctx.targetId ? this.state.birds.get(ctx.targetId) : undefined;
+      const needsNewTarget =
+        !currentTarget || !currentTarget.alive ||
+        (now - ctx.targetPickedAt) > tuning.targetSwitchSec * 1000;
+      let target: Bird | undefined = currentTarget && currentTarget.alive ? currentTarget : undefined;
+      if (needsNewTarget) {
+        // Pick from all live enemies (humans AND bots — bot-on-bot is fine and
+        // keeps matches resolving when humans drop). Closer is more likely but
+        // a random weight prevents every bot lining up on the same victim.
+        const candidates: Array<{ b: Bird; w: number }> = [];
+        for (const other of this.state.birds.values()) {
+          if (other.id === me.id || !other.alive) continue;
+          const d = Math.hypot(other.x - me.x, other.z - me.z) || 0.1;
+          // Inverse-distance weight, plus a flat baseline so far-away bots
+          // still occasionally get picked.
+          candidates.push({ b: other, w: 1 / d + 0.05 });
         }
-        if (nearestItem) { goalX = nearestItem.x; goalZ = nearestItem.z; }
+        if (candidates.length === 0) continue;
+        const total = candidates.reduce((s, c) => s + c.w, 0);
+        let r = Math.random() * total;
+        target = candidates[0].b;
+        for (const c of candidates) { r -= c.w; if (r <= 0) { target = c.b; break; } }
+        if (ctx.targetId !== target.id) {
+          ctx.targetId = target.id;
+          ctx.firstSawTargetAt = now;
+        }
+        ctx.targetPickedAt = now;
+      }
+      if (!target) continue;
+
+      const w = WEAPONS[me.weapon] ?? WEAPONS.beak;
+      const hpFrac = me.hp / Math.max(1, me.maxHp);
+      const lowHp = hpFrac < tuning.fleeHpFrac;
+
+      // === 2. Pick a behavior + a goal position ===
+      // Find the most desirable nearby item once, reuse for both LOOT and FLEE.
+      let bestItem: { it: ItemDrop; d: number; score: number } | null = null;
+      for (const it of this.state.items.values()) {
+        const d = Math.hypot(it.x - me.x, it.z - me.z);
+        if (d > tuning.itemSeekRadius) continue;
+        // Score weighting: heals are king when low HP, weapons matter when on
+        // the default beak, every other power-up has a flat baseline.
+        let score = 1;
+        if (HEAL_KINDS.has(it.kind))    score = lowHp ? 12 : 4;
+        if (WEAPON_KINDS.has(it.kind))  score = me.weapon === "beak" ? 6 : 2;
+        if (it.kind === "doubleDamage") score = 5;
+        if (it.kind === "haste")        score = lowHp ? 6 : 3;
+        // Bake distance into the score — closer is much better.
+        score /= d + 0.5;
+        if (!bestItem || score > bestItem.score) bestItem = { it, d, score };
       }
 
-      // Walk toward goal.
+      let goalX: number, goalZ: number;
+      let mode: "fight" | "loot" | "flee";
+      if (lowHp) {
+        // FLEE — run from target. Vector = (me - target) normalized, projected
+        // out to the arena edge. Detour to a heal if one's in pickup range.
+        mode = "flee";
+        const fdx = me.x - target.x;
+        const fdz = me.z - target.z;
+        const fn = Math.hypot(fdx, fdz) || 1;
+        goalX = me.x + (fdx / fn) * 6;
+        goalZ = me.z + (fdz / fn) * 6;
+        if (bestItem && HEAL_KINDS.has(bestItem.it.kind)) {
+          goalX = bestItem.it.x;
+          goalZ = bestItem.it.z;
+        }
+      } else if (bestItem && bestItem.score > 1.5) {
+        // LOOT — the item is genuinely worth a detour.
+        mode = "loot";
+        goalX = bestItem.it.x;
+        goalZ = bestItem.it.z;
+      } else {
+        // FIGHT — close to attack range on the target.
+        mode = "fight";
+        goalX = target.x;
+        goalZ = target.z;
+      }
+
+      // === 3. Move toward goal ===
       const dx = goalX - me.x;
       const dz = goalZ - me.z;
       const dist = Math.hypot(dx, dz) || 1;
-      const step = tuning.moveSpeed * (me.hasteUntil > now ? 1.4 : 1) * dt;
-      const w = WEAPONS[me.weapon] ?? WEAPONS.beak;
-      const stopDist = (w.range ?? 2) * 0.7; // close enough to swing without crowding
+      const sprinting = mode === "flee" || (mode === "fight" && dist > (w.range ?? 2) * 2);
+      const speedMul =
+        (me.hasteUntil > now ? 1.4 : 1) *
+        (sprinting ? 1.15 : 1);
+      const step = tuning.moveSpeed * speedMul * dt;
+
+      // FIGHT mode stops just inside weapon range; LOOT/FLEE walks all the way.
+      const stopDist = mode === "fight" ? (w.range ?? 2) * 0.7 : 0;
       if (dist > stopDist) {
         me.x += (dx / dist) * Math.min(step, dist - stopDist);
         me.z += (dz / dist) * Math.min(step, dist - stopDist);
@@ -593,12 +681,36 @@ export class SabongRoom extends Room<SabongState> {
       const maxR = ARENA_R - 0.5;
       if (rr > maxR) { me.x *= maxR / rr; me.z *= maxR / rr; }
 
-      // Face the target.
-      const tdx = target.x - me.x;
-      const tdz = target.z - me.z;
-      me.ry = Math.atan2(-tdx, -tdz);
+      // Face the threat (or the loot direction when running away — looks
+      // intentional rather than blind panic).
+      const faceX = mode === "flee" ? me.x - target.x : target.x - me.x;
+      const faceZ = mode === "flee" ? me.z - target.z : target.z - me.z;
+      me.ry = Math.atan2(-faceX, -faceZ);
 
-      // Auto-pickup any item we walked over (same radius as humans).
+      // === 4. Vertical sim — gravity + jump impulse ===
+      // Combat hops only while in attack range and grounded; flee jumps when a
+      // pursuer is close. Cooldown prevents pogo-stick spam.
+      const grounded = me.y <= BIRD_GROUND_Y + 0.01;
+      if (grounded) me.y = BIRD_GROUND_Y;
+      const dToTarget = Math.hypot(target.x - me.x, target.z - me.z);
+      const shouldJump =
+        grounded &&
+        now >= ctx.nextJumpEligibleAt &&
+        Math.random() < tuning.jumpChancePerSec * dt &&
+        (mode === "fight" ? dToTarget <= (w.range ?? 2) * 1.3 :
+         mode === "flee"  ? dToTarget < 4 :
+         false);
+      if (shouldJump) {
+        ctx.vy = BOT_JUMP_V;
+        ctx.nextJumpEligibleAt = now + 700;
+      }
+      if (!grounded || ctx.vy > 0) {
+        ctx.vy += BOT_GRAVITY * dt;
+        me.y = Math.max(BIRD_GROUND_Y, me.y + ctx.vy * dt);
+        if (me.y <= BIRD_GROUND_Y) { me.y = BIRD_GROUND_Y; ctx.vy = 0; }
+      }
+
+      // === 5. Auto-pickup any item the bot walked over (matches human path) ===
       for (const [iid, it] of this.state.items) {
         if (Math.hypot(it.x - me.x, it.z - me.z) <= PICKUP_RADIUS) {
           this.applyItem(me, it.kind);
@@ -608,14 +720,11 @@ export class SabongRoom extends Room<SabongState> {
         }
       }
 
-      // Peck if in range, past the reaction window, and within cooldown.
-      const dToTarget = Math.hypot(target.x - me.x, target.z - me.z);
-      if (dToTarget <= (w.range ?? 2) && now - ctx.firstSawTargetAt >= tuning.reactionMs) {
-        // Apply difficulty-tuned cooldown stretch.
+      // === 6. Attack — only in FIGHT/LOOT modes. FLEE prioritizes survival. ===
+      if (mode !== "flee" && dToTarget <= (w.range ?? 2) && now - ctx.firstSawTargetAt >= tuning.reactionMs) {
         const stretchedCooldown = w.cooldownMs * tuning.peckCooldownMul;
         if (now - me.lastPeckAt >= stretchedCooldown) {
           if (w.ranged) {
-            // If a bot picked up a ranged weapon, fire straight at the target.
             const dxAim = target.x - me.x, dzAim = target.z - me.z;
             const n = Math.hypot(dxAim, dzAim) || 1;
             this.resolveShoot(me, dxAim / n, dzAim / n);
@@ -639,7 +748,10 @@ export class SabongRoom extends Room<SabongState> {
     for (const id of ids) this.state.items.delete(id);
     this.lastDropAt = Date.now(); // first drop ~DROP_INTERVAL_MS into the match
     // Clear bot AI state — last round's target/timing shouldn't bleed into this one.
-    for (const ctx of this.bots.values()) { ctx.targetId = null; ctx.firstSawTargetAt = 0; }
+    for (const ctx of this.bots.values()) {
+      ctx.targetId = null; ctx.firstSawTargetAt = 0;
+      ctx.targetPickedAt = 0; ctx.vy = 0; ctx.nextJumpEligibleAt = 0;
+    }
     for (const b of this.state.birds.values()) {
       const spawn = SPAWNS[b.spawnIndex] ?? SPAWNS[0];
       b.x = spawn.x;
