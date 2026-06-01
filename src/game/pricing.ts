@@ -39,6 +39,23 @@ export function formatTime(ms: number): string {
 
 export const FREE_TRIAL_MS = 3 * 60_000 // 3 minutes free on first visit
 
+// Master switch for the time-pool paywall. While disabled:
+//   - hasTime() always returns true
+//   - spendTime() is a no-op (the visible timer stops ticking)
+//   - the Game time-out → store-popup loop is short-circuited
+//   - the SessionTimer chip + "out of time" UI is hidden
+// Toggle with the Vite env var `VITE_PAYWALL`:
+//   `1` / `true` / `on` → paywall enforced
+//   anything else (incl. unset) → paywall off (the launch-period default)
+// At build time: `VITE_PAYWALL=1 npm run build` to ship a paywalled build.
+// At dev time:   add `VITE_PAYWALL=1` to a `.env.local` to test the gates.
+export const PAYWALL_ENABLED: boolean = (() => {
+  const raw = (import.meta as any).env?.VITE_PAYWALL
+  if (raw === undefined || raw === null) return false
+  const v = String(raw).toLowerCase()
+  return v === '1' || v === 'true' || v === 'on' || v === 'yes'
+})()
+
 // Daily login streak grants bonus free time, capped per day. Encourages return visits.
 export const STREAK_BONUS_MS = 30_000
 export const STREAK_BONUS_CAP_DAYS = 14

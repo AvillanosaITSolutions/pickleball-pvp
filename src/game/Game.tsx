@@ -15,7 +15,7 @@ import { registerRemoteThrowHandler } from './net'
 import type { ThrowSpec } from './Projectiles'
 import { useGame, KIND_INFO, KIND_ORDER } from './store'
 import type { ProjectileKind } from './store'
-import { TIME_PACKS, formatTime } from './pricing'
+import { TIME_PACKS, formatTime, PAYWALL_ENABLED } from './pricing'
 import { preloadAll } from './audio'
 import { playMusic, stopMusic, playSfx } from './sfx'
 import { CameraEffects } from './CameraEffects'
@@ -168,6 +168,10 @@ export function Game() {
   // Time pool ticker — decrement timeRemainingMs while pointer-locked and playing
   useEffect(() => {
     if (!locked) return
+    // Paywall off → don't even start the ticker. Saves a rAF loop and means
+    // turning the flag on at runtime still requires a reload (intentional —
+    // avoids surprising in-session lockouts).
+    if (!PAYWALL_ENABLED) return
     let raf = 0
     let last = performance.now()
     const loop = () => {
@@ -259,7 +263,7 @@ export function Game() {
       const k = e.key.toLowerCase()
 
       // B = open the buy / menu overlay (releases pointer lock so cursor returns)
-      if (k === 'b') {
+      if (k === 'b' && PAYWALL_ENABLED) {
         document.exitPointerLock?.()
         setShowStore(true)
         return
@@ -414,16 +418,20 @@ export function Game() {
           )}
         </div>
         <div className="credits" style={{ pointerEvents: 'auto' }}>
-          <span
-            className="cr-amt"
-            style={{ color: timeRemainingMs < 60_000 ? '#ef4444' : '#facc15' }}
-            title="Time remaining"
-          >
-            ⏱ {formatTime(timeRemainingMs)}
-          </span>
-          <button className="cr-buy" onClick={() => setShowStore(true)} title="Buy more time (B)">
-            Buy <kbd>B</kbd>
-          </button>
+          {PAYWALL_ENABLED && (
+            <>
+              <span
+                className="cr-amt"
+                style={{ color: timeRemainingMs < 60_000 ? '#ef4444' : '#facc15' }}
+                title="Time remaining"
+              >
+                ⏱ {formatTime(timeRemainingMs)}
+              </span>
+              <button className="cr-buy" onClick={() => setShowStore(true)} title="Buy more time (B)">
+                Buy <kbd>B</kbd>
+              </button>
+            </>
+          )}
           <button className="cr-buy" onClick={() => setShowQuickMenu(true)} title="Open menu (Esc)" style={{ background: '#52525b', color: '#fff' }}>
             Menu <kbd>Esc</kbd>
           </button>
@@ -432,7 +440,7 @@ export function Game() {
         {locked && (
           <div className="lock-hint">
             <kbd>Esc</kbd> free cursor &nbsp;·&nbsp;
-            <kbd>B</kbd> store &nbsp;·&nbsp;
+            {PAYWALL_ENABLED && <><kbd>B</kbd> store &nbsp;·&nbsp;</>}
             <kbd>X</kbd> clean &nbsp;·&nbsp;
             <kbd>M</kbd> menu
           </div>
@@ -447,7 +455,8 @@ export function Game() {
           <button className="cycle" onClick={() => cycleKind(-1)} title="Q">‹</button>
           {KIND_ORDER.map((k, i) => {
             const info = KIND_INFO[k]
-            const outOfTime = timeRemainingMs <= 0
+            // When the paywall is off, projectiles are never "out of time".
+            const outOfTime = PAYWALL_ENABLED && timeRemainingMs <= 0
             return (
               <button
                 key={k}
@@ -565,7 +574,9 @@ export function Game() {
                 <input type="file" accept="image/*" onChange={(e) => { const f = e.target.files?.[0]; if (f) handleDummyFile(f); setShowQuickMenu(false) }} />
                 Upload dummy image
               </label>
-              <button onClick={() => { setShowStore(true); setShowQuickMenu(false) }}>Top up credits</button>
+              {PAYWALL_ENABLED && (
+                <button onClick={() => { setShowStore(true); setShowQuickMenu(false) }}>Top up credits</button>
+              )}
               <button onClick={() => setShowQuickMenu(false)}>Close</button>
             </div>
           </div>

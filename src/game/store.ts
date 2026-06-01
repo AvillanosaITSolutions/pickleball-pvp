@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import { FREE_TRIAL_MS } from './pricing'
+import { FREE_TRIAL_MS, PAYWALL_ENABLED } from './pricing'
 
 // Lazy import to avoid loading socket.io-client until multiplayer is engaged.
 function emitPhotoSafe(url: string | null) {
@@ -178,11 +178,14 @@ export const useGame = create<State>((set, get) => ({
     set({ timeRemainingMs: next })
   },
   spendTime: (ms) => {
+    // Paywall disabled → never drain the pool. Keeps the timer visually
+    // stable and prevents the "out of time" overlay from ever firing.
+    if (!PAYWALL_ENABLED) return
     const next = Math.max(0, get().timeRemainingMs - ms)
     try { localStorage.setItem('timeRemainingMs', String(next)) } catch {}
     set({ timeRemainingMs: next })
   },
-  hasTime: () => get().timeRemainingMs > 0,
+  hasTime: () => !PAYWALL_ENABLED || get().timeRemainingMs > 0,
   setCharge: (c) => set({ charge: c }),
   setSelectedKind: (k) => set({ selectedKind: k }),
   registerThrow: () => set((s) => ({ throws: s.throws + 1 })),
