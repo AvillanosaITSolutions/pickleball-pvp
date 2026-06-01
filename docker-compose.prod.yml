@@ -2,8 +2,11 @@
 # Routes through the EXISTING visa-reminder-traefik (certresolver "letsencrypt")
 # and reuses the existing Postgres, all on the external visa-reminder_default network.
 # HTTPS via sslip.io hostnames (free, no domain needed):
-#   web → https://rageroom.88-222-245-88.nip.io
-#   api → https://api-rageroom.88-222-245-88.nip.io
+#   web (combined)         → https://rageroom.88-222-245-88.nip.io
+#   web (Rage standalone)  → https://rage.88-222-245-88.nip.io
+#   web (Cluck Fighters)   → https://chicken.88-222-245-88.nip.io
+#   api                    → https://api-rageroom.88-222-245-88.nip.io
+#   colyseus (wss)         → wss://mp-rageroom.88-222-245-88.nip.io
 #
 # Required env vars (~/rageroom/.env, written by CI from GitHub secrets):
 #   GHCR_REPO, IMAGE_TAG, POSTGRES_USER, POSTGRES_PASSWORD, POSTGRES_DB,
@@ -63,7 +66,7 @@ services:
       - "traefik.http.routers.rageroom-mp.tls.certresolver=letsencrypt"
       - "traefik.http.services.rageroom-mp.loadbalancer.server.port=2567"
 
-  # ============== Web (Nginx + Vite build) ==============
+  # ============== Web (combined — auth + paywall + mode picker) ==============
   web:
     image: ${GHCR_REPO}/web:${IMAGE_TAG:-latest}
     container_name: rageroom-web
@@ -78,6 +81,39 @@ services:
       - "traefik.http.routers.rageroom-web.tls=true"
       - "traefik.http.routers.rageroom-web.tls.certresolver=letsencrypt"
       - "traefik.http.services.rageroom-web.loadbalancer.server.port=80"
+
+  # ============== Web (CrazyGames standalone — Rage Room) ==============
+  # No auth, no paywall, no mode picker. Shares the api + colyseus backends.
+  web-rage:
+    image: ${GHCR_REPO}/web-rage:${IMAGE_TAG:-latest}
+    container_name: rageroom-web-rage
+    restart: unless-stopped
+    networks:
+      - visa-reminder_default
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=visa-reminder_default"
+      - "traefik.http.routers.rageroom-web-rage.rule=Host(`rage.88-222-245-88.nip.io`)"
+      - "traefik.http.routers.rageroom-web-rage.entrypoints=websecure"
+      - "traefik.http.routers.rageroom-web-rage.tls=true"
+      - "traefik.http.routers.rageroom-web-rage.tls.certresolver=letsencrypt"
+      - "traefik.http.services.rageroom-web-rage.loadbalancer.server.port=80"
+
+  # ============== Web (CrazyGames standalone — Cluck Fighters) ==============
+  web-sabong:
+    image: ${GHCR_REPO}/web-sabong:${IMAGE_TAG:-latest}
+    container_name: rageroom-web-sabong
+    restart: unless-stopped
+    networks:
+      - visa-reminder_default
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=visa-reminder_default"
+      - "traefik.http.routers.rageroom-web-sabong.rule=Host(`chicken.88-222-245-88.nip.io`)"
+      - "traefik.http.routers.rageroom-web-sabong.entrypoints=websecure"
+      - "traefik.http.routers.rageroom-web-sabong.tls=true"
+      - "traefik.http.routers.rageroom-web-sabong.tls.certresolver=letsencrypt"
+      - "traefik.http.services.rageroom-web-sabong.loadbalancer.server.port=80"
 
 networks:
   visa-reminder_default:

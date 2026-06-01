@@ -8,6 +8,7 @@ import { ErrorBoundary } from './ErrorBoundary'
 import { useMultiplayer } from './multiplayer'
 import { getRoom, sendRoomMessage, leaveRoom } from './net'
 import { playMusic, stopMusic, playSfx, isMuted, toggleMuted, subscribeAudio } from './sfx'
+import { crazyRequestMidgameAd } from './crazygames'
 
 // Sabong = top-down arena fight, but rendered in the same 3D environment as
 // the rage room. Each player is a rooster (capsule + comb + beak). Click pecks
@@ -281,7 +282,7 @@ export function SabongGame({ onExit }: { onExit?: () => void } = {}) {
         camMode={camMode}
         onToggleCam={() => setCamMode((m) => m === 'first' ? 'third' : 'first')}
         onLeave={() => { leaveRoom(); onExit?.() }}
-        onRematch={() => sendRoomMessage('rematch')}
+        onRematch={() => crazyRequestMidgameAd(() => sendRoomMessage('rematch'))}
       />
 
       <TouchControls
@@ -1098,8 +1099,8 @@ function SabongHUD({
           <div className="sabong-over-stack" style={{ pointerEvents: 'auto', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 14 }}>
             <span className="sabong-over-title" style={{ fontFamily: 'Anton, sans-serif', fontSize: 44, letterSpacing: 2 }}>
               {view.winner === myId
-                ? (matchSize > 2 ? '🏆 LAST ROOSTER STANDING' : '🏆 YOU WIN')
-                : view.winner ? '☠ DEFEATED' : 'DRAW'}
+                ? (matchSize > 2 ? '🏆 LAST CLUCK STANDING' : '🏆 YOU WIN')
+                : view.winner ? '💫 KNOCKED OUT' : 'DRAW'}
             </span>
             {/* Royale placement chip — shown for any 3+ player match where we
                 know our final position. */}
@@ -1332,7 +1333,7 @@ function RoomInviteChip() {
     // On mobile, prefer the native share sheet so users can send via Messages/WhatsApp/etc.
     if (typeof navigator !== 'undefined' && (navigator as any).share) {
       try {
-        await (navigator as any).share({ title: 'Join my Sabong room', text: `Join room ${code}`, url: inviteUrl })
+        await (navigator as any).share({ title: 'Join my Cluck Fighters room', text: `Join room ${code}`, url: inviteUrl })
         return
       } catch { /* user cancelled — fall through to clipboard */ }
     }

@@ -63,7 +63,7 @@ jobs:
           cache-from: type=gha,scope=colyseus
           cache-to: type=gha,scope=colyseus,mode=max
 
-      # ---------- WEB ----------
+      # ---------- WEB (combined — auth + paywall + both games) ----------
       - name: Build & push web
         uses: docker/build-push-action@v6
         with:
@@ -84,6 +84,42 @@ jobs:
             ${{ env.REGISTRY }}/${{ steps.meta.outputs.image_base }}/web:latest
           cache-from: type=gha,scope=web
           cache-to: type=gha,scope=web,mode=max
+
+      # ---------- WEB-RAGE (CrazyGames standalone — Rage Room only, no auth) ----------
+      - name: Build & push web-rage
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          push: true
+          build-args: |
+            VITE_GAME=rage
+            VITE_API_BASE_URL=https://api-rageroom.88-222-245-88.nip.io
+            VITE_COLYSEUS_URL=wss://mp-rageroom.88-222-245-88.nip.io
+            VITE_PAYWALL=0
+          tags: |
+            ${{ env.REGISTRY }}/${{ steps.meta.outputs.image_base }}/web-rage:${{ steps.meta.outputs.tag }}
+            ${{ env.REGISTRY }}/${{ steps.meta.outputs.image_base }}/web-rage:latest
+          cache-from: type=gha,scope=web-rage
+          cache-to: type=gha,scope=web-rage,mode=max
+
+      # ---------- WEB-SABONG (CrazyGames standalone — Cluck Fighters only, no auth) ----------
+      - name: Build & push web-sabong
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          push: true
+          build-args: |
+            VITE_GAME=sabong
+            VITE_API_BASE_URL=https://api-rageroom.88-222-245-88.nip.io
+            VITE_COLYSEUS_URL=wss://mp-rageroom.88-222-245-88.nip.io
+            VITE_PAYWALL=0
+          tags: |
+            ${{ env.REGISTRY }}/${{ steps.meta.outputs.image_base }}/web-sabong:${{ steps.meta.outputs.tag }}
+            ${{ env.REGISTRY }}/${{ steps.meta.outputs.image_base }}/web-sabong:latest
+          cache-from: type=gha,scope=web-sabong
+          cache-to: type=gha,scope=web-sabong,mode=max
 
   deploy:
     needs: build

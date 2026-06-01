@@ -8,7 +8,16 @@ interface Props {
   children: React.ReactNode
 }
 
+// CrazyGames builds run inside an iframe where external redirect-based auth
+// is disallowed and would tank conversion. Skip the gate entirely.
+const SKIP_AUTH = !!import.meta.env.VITE_GAME && import.meta.env.VITE_GAME !== 'all'
+
 export function AuthGate({ children }: Props) {
+  if (SKIP_AUTH) return <>{children}</>
+  return <Auth0Gate>{children}</Auth0Gate>
+}
+
+function Auth0Gate({ children }: Props) {
   const {
     isLoading,
     isAuthenticated,

@@ -24,10 +24,16 @@ export function clearInviteUrl() {
   window.history.replaceState({}, '', window.location.pathname)
 }
 
-export const GAME_MODES: GameMode[] = [
+const ALL_GAME_MODES: GameMode[] = [
   { id: 'rage',   label: 'Wall of Anger', blurb: 'Solo or with friends. Throw everything at the wall.',        enabled: true },
-  { id: 'sabong', label: 'Sabong',        blurb: '1v1 — rooster vs rooster. Peck the other bird out.',         enabled: true },
+  { id: 'sabong', label: 'Cluck Fighters', blurb: 'Up to 10 chickens in the ring. Peck, dodge, last cluck wins.',  enabled: true },
 ]
+
+// Single-game builds (CrazyGames submissions) restrict the lobby to one mode.
+const BUILD_GAME = (import.meta.env.VITE_GAME as string | undefined) ?? 'all'
+export const GAME_MODES: GameMode[] = BUILD_GAME === 'all'
+  ? ALL_GAME_MODES
+  : ALL_GAME_MODES.filter((m) => m.id === BUILD_GAME)
 
 interface Props {
   onEnter: () => void
@@ -38,6 +44,7 @@ export function Lobby({ onEnter }: Props) {
   const setName = useMultiplayer((s) => s.setName)
   const code = useMultiplayer((s) => s.code)
   const [mode, setMode] = useState<string>(() => {
+    if (BUILD_GAME !== 'all') return BUILD_GAME
     try { return localStorage.getItem('mpMode') || 'rage' } catch { return 'rage' }
   })
   const [joinCode, setJoinCode] = useState('')
@@ -110,8 +117,8 @@ export function Lobby({ onEnter }: Props) {
           maxLength={24}
         />
 
-        <label style={{ ...label, marginTop: 16 }}>Game mode</label>
-        <div style={modeGrid}>
+        {GAME_MODES.length > 1 && <label style={{ ...label, marginTop: 16 }}>Game mode</label>}
+        <div style={{ ...modeGrid, display: GAME_MODES.length > 1 ? modeGrid.display : 'none' }}>
           {GAME_MODES.map((m) => (
             <button
               key={m.id}
@@ -181,7 +188,7 @@ function MobileNotice() {
   if (!isTouch) return null
   return (
     <div style={mobileNote}>
-      📱 Sabong supports touch — on-screen joystick + tap to peck.
+      📱 Cluck Fighters supports touch — on-screen joystick + tap to peck.
       Wall of Anger still needs a mouse + keyboard, so play that one on desktop.
     </div>
   )

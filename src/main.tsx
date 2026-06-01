@@ -8,18 +8,27 @@ const domain = import.meta.env.VITE_AUTH0_DOMAIN as string
 const clientId = import.meta.env.VITE_AUTH0_CLIENT_ID as string
 const audience = import.meta.env.VITE_AUTH0_AUDIENCE as string
 
-createRoot(document.getElementById('root')!).render(
+// CrazyGames builds skip Auth0 — wrapping in Auth0Provider would still hit
+// their endpoints on mount and break in iframe sandboxes.
+const SKIP_AUTH = !!import.meta.env.VITE_GAME && import.meta.env.VITE_GAME !== 'all'
+
+const root = createRoot(document.getElementById('root')!)
+root.render(
   <StrictMode>
-    <Auth0Provider
-      domain={domain}
-      clientId={clientId}
-      authorizationParams={{
-        redirect_uri: window.location.origin,
-        audience,
-      }}
-      cacheLocation="localstorage"
-    >
+    {SKIP_AUTH ? (
       <App />
-    </Auth0Provider>
+    ) : (
+      <Auth0Provider
+        domain={domain}
+        clientId={clientId}
+        authorizationParams={{
+          redirect_uri: window.location.origin,
+          audience,
+        }}
+        cacheLocation="localstorage"
+      >
+        <App />
+      </Auth0Provider>
+    )}
   </StrictMode>,
 )
