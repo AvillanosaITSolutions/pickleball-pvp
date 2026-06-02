@@ -153,6 +153,11 @@ export function SabongGame({ onExit }: { onExit?: () => void } = {}) {
   const myId = useMultiplayer((s) => s.myId)
   const [peckFlash, setPeckFlash] = useState(0)
   const [hitFlash, setHitFlash] = useState(0)
+  // Capture mode (?capture=1): hide HUD and hide the player's own bird model
+  // for the cover-image script. Camera stays in 3rd-person chase position, so
+  // the shot frames the arena chaos with no UI and no big white back-of-head.
+  // Detected once on mount — no live toggle.
+  const captureMode = typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('capture') === '1'
   // Camera mode — default third so you can watch your own bird peck.
   const [camMode, setCamMode] = useState<CameraMode>(() => {
     try { return (localStorage.getItem('sabongCam') as CameraMode) || 'third' } catch { return 'third' }
@@ -290,14 +295,16 @@ export function SabongGame({ onExit }: { onExit?: () => void } = {}) {
         </Physics>
       </Canvas>
 
-      <SabongHUD
-        view={view} me={me} opponents={opponents}
-        peckFlash={peckFlash} hitFlash={hitFlash} myId={myId}
-        camMode={camMode}
-        onToggleCam={() => setCamMode((m) => m === 'first' ? 'third' : 'first')}
-        onLeave={() => { leaveRoom(); onExit?.() }}
-        onRematch={() => crazyRequestMidgameAd(() => sendRoomMessage('rematch'))}
-      />
+      {!captureMode && (
+        <SabongHUD
+          view={view} me={me} opponents={opponents}
+          peckFlash={peckFlash} hitFlash={hitFlash} myId={myId}
+          camMode={camMode}
+          onToggleCam={() => setCamMode((m) => m === 'first' ? 'third' : 'first')}
+          onLeave={() => { leaveRoom(); onExit?.() }}
+          onRematch={() => crazyRequestMidgameAd(() => sendRoomMessage('rematch'))}
+        />
+      )}
 
       <TouchControls
         phase={view.phase}
@@ -547,9 +554,12 @@ function RoosterController({ phase, alive, myBird, camMode, items }: RoosterCont
       )
     }
 
-    // Drive the local bird's visual (third-person only)
+    // Drive the local bird's visual (third-person only). Capture mode hides
+    // the local model entirely so the cover-image shot frames enemies, not
+    // the back of the player's own head.
     if (localGroupRef.current) {
-      const visible = camMode === 'third' && alive
+      const captureMode = typeof window !== 'undefined' && window.location.search.includes('capture=1')
+      const visible = camMode === 'third' && alive && !captureMode
       localGroupRef.current.visible = visible
       if (visible) {
         const lift = Math.max(0, posRef.current.y - GROUND_Y)

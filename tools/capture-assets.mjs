@@ -73,7 +73,10 @@ async function captureImage(shot) {
   const ctx = await browser.newContext({ viewport: { width: shot.w, height: shot.h } })
   const page = await ctx.newPage()
   try {
-    await page.goto(URL, { waitUntil: 'domcontentloaded' })
+    // ?capture=1 makes SabongGame hide the HUD and force first-person, so the
+    // shot is pure arena + enemy chickens. CG rejects covers with UI overlays
+    // and our own bird's back-of-head dominating the frame is dead weight.
+    await page.goto(`${URL}/?capture=1`, { waitUntil: 'domcontentloaded' })
     await setupRoom(page)
     const path = join(OUT, `${shot.name}.png`)
     await page.screenshot({ path, type: 'png' })
